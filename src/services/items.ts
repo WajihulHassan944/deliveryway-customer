@@ -26,19 +26,22 @@ export const fetchMenuItemsPage = async ({
   token,
 }: {
   restaurantId: string;
-  categoryId: string;
+  categoryId?: string;
   page: number;
   limit: number;
   token?: string | null;
 }) => {
   const params = new URLSearchParams({
     restaurantId,
-    categoryId,
     page: String(page),
     limit: String(limit),
     sortBy: "sortOrder",
     sortOrder: "ASC",
   });
+
+  if (categoryId) {
+    params.set("categoryId", categoryId);
+  }
 
   const response = await getItems(`/v1/menu/items?${params.toString()}`, token);
 
@@ -47,6 +50,36 @@ export const fetchMenuItemsPage = async ({
     items: normalizeApiArray<MenuItem>(response),
     meta: normalizeApiMeta(response),
   };
+};
+
+export const fetchMenuItemDetailsByIds = async ({
+  itemIds,
+  token,
+}: {
+  itemIds: string[];
+  token?: string | null;
+}) => {
+  const uniqueIds = Array.from(
+    new Set(itemIds.map((id) => id.trim()).filter(Boolean))
+  );
+
+  const responses = await Promise.all(
+    uniqueIds.map(async (itemId) => {
+      const response = await getItems(
+        `/v1/menu/items?search=${encodeURIComponent(itemId)}`,
+        token
+      );
+      const items = normalizeApiArray<MenuItem>(response);
+      const matchedItem =
+        items.find((item) => String(item?.id || "") === itemId) || items[0] || null;
+
+      return [itemId, matchedItem] as const;
+    })
+  );
+
+  return Object.fromEntries(
+    responses.filter((entry): entry is readonly [string, MenuItem] => entry[1] !== null)
+  );
 };
 
 export const fetchSplitPizzaMenuItems = async ({

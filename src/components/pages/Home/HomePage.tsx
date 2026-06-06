@@ -3,15 +3,12 @@
 import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { toast } from "sonner";
 
 import HeroSection from "@/components/pages/Home/components/heroSection";
 import FoodCategorySection from "@/components/pages/Home/components/foodCategorySection";
 import WhyChooseUs from "@/components/pages/Home/components/whyChooseUsSection";
 import AppPromo from "@/components/pages/Home/components/appPromoSection";
 import Stats from "@/components/pages/Home/components/statsSection";
-import BlogSection from "@/components/pages/Home/components/blogSection";
-import NewsletterSection from "@/components/pages/Home/components/newsLetterSection";
 import { RequiredBranchSelectionModal } from "@/components/common/branch-selector/RequiredBranchSelectionModal";
 import { OrderNowFloatingButton } from "@/components/ui/OrderNowFloatingButton";
 import BranchOpeningHoursPopup from "@/components/pages/Home/components/BranchOpeningHours";
@@ -23,16 +20,11 @@ import { useBranding } from "@/hooks/useBranding";
 import { useAddDealToCart } from "@/hooks/useCart";
 import { useCustomerDeals } from "@/hooks/useCustomerDeals";
 import { useHome } from "@/hooks/useHome";
-import {
-  isFixedItemDeal,
-  isFlexibleCategoryDeal,
-} from "@/components/pages/Home/utils/customer-deal-cart";
 import { resolveHomeBranchId, resolveHomeRestaurantId } from "@/lib/home";
 import type { CustomerDeal } from "@/types/customer-deals";
 
 const HomePage = () => {
   const t = useTranslations("home.hero");
-  const dealsT = useTranslations("home.deals");
   const router = useRouter();
   const { user, token, restaurantId: authRestaurantId } = useAuth();
   const { branding: fallbackBranding } = useBranding();
@@ -54,31 +46,6 @@ const HomePage = () => {
       );
     },
     [addDealMutation, router]
-  );
-  const handleBrowseDeal = useCallback(
-    (deal: CustomerDeal) => {
-      const firstCategoryId = deal.scopeCategories[0]?.id;
-      const firstMenuItemId = deal.scopeMenuItems[0]?.id;
-      const params = new URLSearchParams();
-
-      params.set("dealId", deal.id);
-
-      if (firstCategoryId) {
-        params.set("categoryId", firstCategoryId);
-      }
-
-      if (isFixedItemDeal(deal) && deal.scopeMenuItems.length === 1 && firstMenuItemId) {
-        params.set("itemId", firstMenuItemId);
-        router.push(`/items/details?${params.toString()}`);
-      } else {
-        router.push(`/items?${params.toString()}`);
-      }
-
-      if (isFlexibleCategoryDeal(deal)) {
-        toast.info(dealsT("categoryDealToast"));
-      }
-    },
-    [dealsT, router]
   );
   const homeResponse = homeQuery.data;
   const homeData = homeResponse ? homeResponse.data : undefined;
@@ -111,15 +78,13 @@ const HomePage = () => {
         deals={dealsQuery.deals}
         isLoading={dealsQuery.isLoading}
         addingDealId={addDealMutation.isPending ? addDealMutation.variables?.deal.id ?? null : null}
+        branchId={branchId}
         onAddDeal={handleAddDeal}
-        onBrowseDeal={handleBrowseDeal}
       />
 
       <WhyChooseUs />
       <AppPromo />
       <Stats />
-      {branding.showPopularItems ? <BlogSection /> : null}
-      <NewsletterSection />
 
       {user && token && !branchId ? <RequiredBranchSelectionModal /> : null}
 

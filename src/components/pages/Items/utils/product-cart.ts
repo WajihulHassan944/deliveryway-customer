@@ -1,5 +1,6 @@
 import type { CartPayload, MenuItem, MenuVariation, ModifierSelectionMap } from "../types";
 import { buildModifierSelections } from "./modifier-selections";
+import type { AddCartItemPayload, CartModifierSelectionInput } from "@/types/cart";
 
 const getId = (value: unknown) => {
   if (value === undefined || value === null) return "";
@@ -29,6 +30,7 @@ type CartPayloadBuilderInput = {
   clearSectionsWhenEmpty: boolean;
   dealId?: string | null;
   shouldSendDealId?: boolean;
+  isDealMenuItemContext?: boolean;
 };
 
 type CartPayloadBuilderModifierGroup = NonNullable<MenuItem["modifierGroups"]>[number];
@@ -60,6 +62,102 @@ const getRestaurantMenuId = (item: MenuItem | null) =>
       item?.menuLinks?.[0]?.menuId
   );
 
+const hasOptions = (value: unknown) => Array.isArray(value) && value.length > 0;
+
+const supportsDealIdCartPayload = (item: MenuItem | null) =>
+  item?.supportsDealIdCartPayload === true ||
+  item?.supportsDealCartPayload === true ||
+  item?.isDealMenuItem === true;
+
+export const hasDealMenuItemModifierOptions = (item: MenuItem | null) =>
+  hasOptions(item?.modifierGroups) ||
+  hasOptions(item?.modifiers) ||
+  hasOptions(item?.modifierLinks);
+
+export const hasUnsupportedDealMenuItemCustomization = (item: MenuItem | null) =>
+  hasOptions(item?.variations) || item?.supportsSplitPizza === true;
+
+export const isDealMenuItemReadyMade = (item: MenuItem | null): boolean =>
+  supportsDealIdCartPayload(item) &&
+  !hasDealMenuItemModifierOptions(item) &&
+  !hasUnsupportedDealMenuItemCustomization(item);
+
+export const isDealMenuItemCustomizable = (item: MenuItem | null): boolean =>
+  supportsDealIdCartPayload(item) &&
+  hasDealMenuItemModifierOptions(item) &&
+  !hasUnsupportedDealMenuItemCustomization(item);
+
+export const canSendDealIdForReadyMadeItem = (
+  deal: { id?: string | null },
+  item: MenuItem | null
+): boolean => Boolean(deal.id && item?.id && isDealMenuItemReadyMade(item));
+
+export const canSendDealIdWithModifierSelections = (
+  deal: { id?: string | null },
+  item: MenuItem | null
+): boolean => Boolean(deal.id && item?.id && isDealMenuItemCustomizable(item));
+
+export const shouldIncludeDealIdInCartPayload = ({
+  deal,
+  item,
+  isDealMenuItem,
+  hasModifierSelections,
+  hasVariation,
+  hasSplitSelection,
+}: {
+  deal?: { id?: string | null } | null;
+  item?: MenuItem | null;
+  isDealMenuItem?: boolean;
+  hasModifierSelections?: boolean;
+  hasVariation?: boolean;
+  hasSplitSelection?: boolean;
+}) => {
+  if (!deal?.id || !item?.id || !isDealMenuItem || hasVariation || hasSplitSelection) {
+    return false;
+  }
+
+  if (hasModifierSelections) {
+    return canSendDealIdWithModifierSelections(deal, item);
+  }
+
+  return canSendDealIdForReadyMadeItem(deal, item);
+};
+
+const getStringId = (value: unknown) => String(value ?? "").trim();
+
+export const buildReadyMadeDealCartItemPayload = ({
+  deal,
+  item,
+  branchId,
+}: {
+  deal: { id?: string | null };
+  item: MenuItem;
+  branchId: string;
+}): AddCartItemPayload => ({
+  branchId: getStringId(branchId),
+  menuItemId: getStringId(item.id),
+  dealId: getStringId(deal.id),
+  quantity: 1,
+});
+
+export const buildCustomizableDealCartItemPayload = ({
+  deal,
+  item,
+  branchId,
+  modifierSelections,
+}: {
+  deal: { id?: string | null };
+  item: MenuItem;
+  branchId: string;
+  modifierSelections: CartModifierSelectionInput[];
+}): AddCartItemPayload => ({
+  branchId: getStringId(branchId),
+  menuItemId: getStringId(item.id),
+  dealId: getStringId(deal.id),
+  quantity: 1,
+  modifierSelections,
+});
+
 export const buildCartPayload = ({
   item,
   branchId,
@@ -75,6 +173,7 @@ export const buildCartPayload = ({
   clearSectionsWhenEmpty,
   dealId,
   shouldSendDealId = false,
+  isDealMenuItemContext = false,
 }: CartPayloadBuilderInput): CartPayload & Record<string, unknown> => {
   const splitSections = getSplitSections({ splitPizzaEnabled, splitPizzaItem, item });
   const restaurantMenuId = getRestaurantMenuId(item);
@@ -106,8 +205,29 @@ export const buildCartPayload = ({
     payload.sections = [];
   }
 
-  if (shouldSendDealId && dealId) {
+  const shouldUseDealPayload =
+    shouldSendDealId &&
+    shouldIncludeDealIdInCartPayload({
+      deal: { id: dealId },
+      item,
+      isDealMenuItem: isDealMenuItemContext || supportsDealIdCartPayload(item),
+      hasModifierSelections: modifierSelections.length > 0,
+      hasVariation: Boolean(selectedVariation?.id),
+      hasSplitSelection: Boolean(splitSections),
+    });
+
+  if (shouldUseDealPayload && dealId) {
     payload.dealId = dealId;
+    delete payload.variationId;
+    delete payload.sections;
+
+    if (groupedFlowModifierGroups.length > 0) {
+      delete payload.modifiers;
+      payload.modifierSelections = modifierSelections;
+    } else {
+      delete payload.modifiers;
+      delete payload.modifierSelections;
+    }
   }
 
   return payload;

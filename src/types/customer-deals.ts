@@ -23,6 +23,7 @@ export type CustomerDealMenuItemOption = Record<string, unknown>;
 export type CustomerDealMenuItem = {
   id: string;
   name: string;
+  slug?: string | null;
   description?: string | null;
   imageUrl?: string | null;
   basePrice?: string | number | null;
@@ -32,8 +33,15 @@ export type CustomerDealMenuItem = {
   modifierGroups?: CustomerDealMenuItemOption[];
   modifiers?: CustomerDealMenuItemOption[];
   modifierLinks?: CustomerDealMenuItemOption[];
+  supportsSplitPizza?: boolean | null;
+  minSelect?: string | number | null;
+  maxSelect?: string | number | null;
+  isRequired?: boolean | null;
+  minQuantity?: string | number | null;
+  maxQuantity?: string | number | null;
   supportsDealIdCartPayload?: boolean;
   supportsDealCartPayload?: boolean;
+  isDealMenuItem?: boolean;
   requiresCustomization?: boolean;
   hasConfigurableOptions?: boolean;
 };
@@ -167,17 +175,25 @@ const normalizeMenuItems = (value: unknown): CustomerDealMenuItem[] => {
     .map((item) => ({
       id: getString(item.id) ?? "",
       name: getString(item.name) ?? "",
+      slug: getNullableString(item.slug),
       description: getNullableString(item.description),
       imageUrl: getNullableString(item.imageUrl),
       basePrice: getStringOrNumber(item.basePrice),
       discountedBasePrice: getStringOrNumber(item.discountedBasePrice),
       category: normalizeMenuItemCategory(item.category),
-      variations: normalizeUnknownArray(item.variations),
-      modifierGroups: normalizeUnknownArray(item.modifierGroups),
-      modifiers: normalizeUnknownArray(item.modifiers),
-      modifierLinks: normalizeUnknownArray(item.modifierLinks),
+      variations: normalizeUnknownArray(item.variations) ?? [],
+      modifierGroups: normalizeUnknownArray(item.modifierGroups) ?? [],
+      modifiers: normalizeUnknownArray(item.modifiers) ?? [],
+      modifierLinks: normalizeUnknownArray(item.modifierLinks) ?? [],
+      supportsSplitPizza: typeof item.supportsSplitPizza === "boolean" ? item.supportsSplitPizza : null,
+      minSelect: getStringOrNumber(item.minSelect),
+      maxSelect: getStringOrNumber(item.maxSelect),
+      isRequired: typeof item.isRequired === "boolean" ? item.isRequired : null,
+      minQuantity: getStringOrNumber(item.minQuantity),
+      maxQuantity: getStringOrNumber(item.maxQuantity),
       supportsDealIdCartPayload: getBoolean(item.supportsDealIdCartPayload),
       supportsDealCartPayload: getBoolean(item.supportsDealCartPayload),
+      isDealMenuItem: getBoolean(item.isDealMenuItem),
       requiresCustomization: getBoolean(item.requiresCustomization),
       hasConfigurableOptions: getBoolean(item.hasConfigurableOptions),
     }))
