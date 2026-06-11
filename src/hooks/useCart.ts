@@ -13,6 +13,7 @@ import {
 } from "@/components/pages/Home/utils/customer-deal-cart";
 import { queryKeys } from "@/config/query-keys";
 import { useDomainApi, type DomainApiHook } from "@/hooks/useDomainApi";
+import { dispatchCartChanged } from "@/lib/cart-events";
 import { getApiErrorMessage } from "@/lib/errors";
 import {
   addCustomerCartItem,
@@ -29,6 +30,7 @@ import {
   postCart,
   quoteCustomerCart,
   updateCustomerCart,
+  updateCustomerCartOrderType,
   updateCustomerCartItem,
   updateCustomerCartItemQuantity,
   updateCustomerCartDealQuantity,
@@ -60,8 +62,9 @@ export type CartApi = DomainApiHook & {
   fetchCustomerCart: (args: { customerId: string }) => Promise<{ response: ApiResult; items: CartItemRecord[]; quote: CartQuote | null }>;
   fetchCustomerCartItem: (args: { customerId: string; cartItemId: string }) => Promise<ApiRecord | null>;
   addCustomerCartItem: (args: { customerId: string; payload: CartMutationPayload }) => Promise<ApiResult>;
-  quoteCustomerCart: (args: { customerId: string }) => Promise<ApiResult>;
+  quoteCustomerCart: (args: { customerId: string; payload?: Record<string, unknown> }) => Promise<ApiResult>;
   updateCustomerCart: (args: { customerId: string; payload: CartUpdatePayload }) => Promise<ApiResult>;
+  updateCustomerCartOrderType: (args: { customerId: string; orderType: "DELIVERY" | "TAKEAWAY" }) => Promise<ApiResult>;
   updateCustomerCartItem: (args: { cartItemId: string; payload: CartMutationPayload }) => Promise<ApiResult>;
   clearCustomerCart: (args: { customerId: string }) => Promise<ApiResult>;
   updateCustomerCartItemQuantity: (args: { customerId: string; cartItemId: string; quantity: number }) => Promise<ApiResult>;
@@ -87,13 +90,21 @@ export const useCart = (token: string | null): CartApi => {
   );
 
   const addCartItem = useCallback(
-    ({ customerId, payload }: { customerId: string; payload: CartMutationPayload }) =>
-      addCustomerCartItem({ customerId, payload, token }),
+    async ({ customerId, payload }: { customerId: string; payload: CartMutationPayload }) => {
+      const response = await addCustomerCartItem({ customerId, payload, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const refreshCartQuote = useCallback(
-    ({ customerId }: { customerId: string }) => quoteCustomerCart({ customerId, token }),
+    ({ customerId, payload }: { customerId: string; payload?: Record<string, unknown> }) =>
+      quoteCustomerCart({ customerId, payload, token }),
     [token]
   );
 
@@ -103,38 +114,87 @@ export const useCart = (token: string | null): CartApi => {
     [token]
   );
 
+  const updateCartOrderType = useCallback(
+    ({ customerId, orderType }: { customerId: string; orderType: "DELIVERY" | "TAKEAWAY" }) =>
+      updateCustomerCartOrderType({ customerId, orderType, token }),
+    [token]
+  );
+
   const updateCartItem = useCallback(
-    ({ cartItemId, payload }: { cartItemId: string; payload: CartMutationPayload }) =>
-      updateCustomerCartItem({ cartItemId, payload, token }),
+    async ({ cartItemId, payload }: { cartItemId: string; payload: CartMutationPayload }) => {
+      const response = await updateCustomerCartItem({ cartItemId, payload, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const clearCart = useCallback(
-    ({ customerId }: { customerId: string }) => clearCustomerCart({ customerId, token }),
+    async ({ customerId }: { customerId: string }) => {
+      const response = await clearCustomerCart({ customerId, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const updateCartItemQuantity = useCallback(
-    ({ customerId, cartItemId, quantity }: { customerId: string; cartItemId: string; quantity: number }) =>
-      updateCustomerCartItemQuantity({ customerId, cartItemId, quantity, token }),
+    async ({ customerId, cartItemId, quantity }: { customerId: string; cartItemId: string; quantity: number }) => {
+      const response = await updateCustomerCartItemQuantity({ customerId, cartItemId, quantity, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const updateCartDealQuantity = useCallback(
-    ({ customerId, dealId, quantity }: { customerId: string; dealId: string; quantity: number }) =>
-      updateCustomerCartDealQuantity({ customerId, dealId, quantity, token }),
+    async ({ customerId, dealId, quantity }: { customerId: string; dealId: string; quantity: number }) => {
+      const response = await updateCustomerCartDealQuantity({ customerId, dealId, quantity, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const deleteCartItem = useCallback(
-    ({ customerId, cartItemId }: { customerId: string; cartItemId: string }) =>
-      deleteCustomerCartItem({ customerId, cartItemId, token }),
+    async ({ customerId, cartItemId }: { customerId: string; cartItemId: string }) => {
+      const response = await deleteCustomerCartItem({ customerId, cartItemId, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
   const deleteCartDeal = useCallback(
-    ({ customerId, dealId }: { customerId: string; dealId: string }) =>
-      deleteCustomerCartDeal({ customerId, dealId, token }),
+    async ({ customerId, dealId }: { customerId: string; dealId: string }) => {
+      const response = await deleteCustomerCartDeal({ customerId, dealId, token });
+
+      if (response && !response.error && response.success !== false) {
+        dispatchCartChanged();
+      }
+
+      return response;
+    },
     [token]
   );
 
@@ -154,6 +214,7 @@ export const useCart = (token: string | null): CartApi => {
       addCustomerCartItem: addCartItem,
       quoteCustomerCart: refreshCartQuote,
       updateCustomerCart: updateCart,
+      updateCustomerCartOrderType: updateCartOrderType,
       updateCustomerCartItem: updateCartItem,
       clearCustomerCart: clearCart,
       updateCustomerCartItemQuantity: updateCartItemQuantity,
@@ -163,7 +224,7 @@ export const useCart = (token: string | null): CartApi => {
       fetchGroupOrders: fetchGroups,
       addGroupOrderItem: addGroupItem,
     }),
-    [addCartItem, addGroupItem, api, clearCart, deleteCartDeal, deleteCartItem, fetchCart, fetchCartItem, fetchGroups, refreshCartQuote, updateCart, updateCartDealQuantity, updateCartItem, updateCartItemQuantity]
+    [addCartItem, addGroupItem, api, clearCart, deleteCartDeal, deleteCartItem, fetchCart, fetchCartItem, fetchGroups, refreshCartQuote, updateCart, updateCartDealQuantity, updateCartItem, updateCartItemQuantity, updateCartOrderType]
   );
 };
 

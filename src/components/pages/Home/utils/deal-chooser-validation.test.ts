@@ -81,6 +81,7 @@ describe("deal chooser validation", () => {
     ).toEqual({
       branchId: "branch-1",
       menuItemId: "pizza",
+      dealId: "deal-1",
       quantity: 1,
       modifierSelections: configuration.modifierSelections,
     });
@@ -184,12 +185,46 @@ describe("deal chooser validation", () => {
     });
   });
 
+  it("blocks MULTIPLE group quantity beyond maxSelect", () => {
+    const item: CustomerDealMenuItem = {
+      ...requiredModifierItem,
+      modifierGroups: [
+        {
+          id: "toppings",
+          name: "Toppings",
+          selectionType: "MULTIPLE",
+          minSelect: 0,
+          maxSelect: 2,
+          modifiers: [{ id: "onion", name: "Onion" }],
+        },
+      ],
+    };
+
+    expect(
+      validateDealChooserItemConfiguration({
+        deal: flexibleDeal,
+        item,
+        configuration: {
+          menuItemId: "pizza",
+          modifierSelections: [
+            {
+              modifierGroupId: "toppings",
+              modifiers: [{ modifierId: "onion", quantity: 3 }],
+            },
+          ],
+        },
+      }).groupErrors
+    ).toEqual({
+      toppings: "Toppings allows at most 2 selections.",
+    });
+  });
+
   it("selected count cannot exceed required quantity", () => {
     expect(validateDealChooserSelectedCount({ selectedCount: 3, requiredQuantity: 1 }))
       .toBe("You can select only 1 item for this deal.");
   });
 
-  it("normal flexible auto-applied deal payload does not include dealId", () => {
+  it("normal flexible auto-applied deal payload includes dealId", () => {
     expect(
       buildDealCartItemPayload({
         deal: flexibleDeal,
@@ -199,6 +234,7 @@ describe("deal chooser validation", () => {
     ).toEqual({
       branchId: "branch-1",
       menuItemId: "drink",
+      dealId: "deal-1",
       quantity: 1,
     });
   });
@@ -256,7 +292,7 @@ describe("deal chooser validation", () => {
     });
   });
 
-  it("allows flexible deal item variation selection without backend dealId payload", () => {
+  it("ignores flexible deal item variation selection for backend dealId payload", () => {
     const item: CustomerDealMenuItem = {
       id: "pizza",
       name: "Pizza",
@@ -268,7 +304,6 @@ describe("deal chooser validation", () => {
     };
     const configuration: DealChooserItemConfiguration = {
       menuItemId: "pizza",
-      selectedVariationId: "large",
       modifierSelections: [],
     };
 
@@ -289,15 +324,14 @@ describe("deal chooser validation", () => {
     ).toEqual({
       branchId: "branch-1",
       menuItemId: "pizza",
+      dealId: "deal-1",
       quantity: 1,
-      variationId: "large",
     });
   });
 
-  it("sends flexible variation item modifiers without dealId", () => {
+  it("sends flexible variation item modifiers with dealId and no variation", () => {
     const configuration: DealChooserItemConfiguration = {
       menuItemId: "pizza",
-      selectedVariationId: "small",
       modifierSelections: [
         {
           modifierGroupId: "size",
@@ -320,16 +354,15 @@ describe("deal chooser validation", () => {
     ).toEqual({
       branchId: "branch-1",
       menuItemId: "pizza",
+      dealId: "deal-1",
       quantity: 1,
-      variationId: "small",
       modifierSelections: configuration.modifierSelections,
     });
   });
 
-  it("allows split-capable flexible items when normal variation and modifier choices are selected", () => {
+  it("allows split-capable flexible items when modifier choices are selected", () => {
     const configuration: DealChooserItemConfiguration = {
       menuItemId: "pizza",
-      selectedVariationId: "small",
       modifierSelections: [
         {
           modifierGroupId: "size",
@@ -362,8 +395,8 @@ describe("deal chooser validation", () => {
     ).toEqual({
       branchId: "branch-1",
       menuItemId: "pizza",
+      dealId: "deal-1",
       quantity: 1,
-      variationId: "small",
       modifierSelections: configuration.modifierSelections,
     });
   });

@@ -10,9 +10,9 @@ const getId = (value: unknown) => {
 export const buildModifiersPayload = (selectionMap: ModifierSelectionMap) =>
   Object.values(selectionMap)
     .flat()
-    .map(({ id }) => ({
+    .map(({ id, selectedQuantity }) => ({
       modifierId: id,
-      quantity: 1,
+      quantity: Math.max(1, Math.floor(Number(selectedQuantity) || 1)),
     }));
 
 type CartPayloadBuilderInput = {
@@ -53,7 +53,7 @@ const getSplitSections = ({
       ]
     : undefined;
 
-const getRestaurantMenuId = (item: MenuItem | null) =>
+export const getRestaurantMenuId = (item: MenuItem | null) =>
   getId(
     item?.restaurantMenuId ||
       item?.restaurantMenu?.id ||
@@ -136,6 +136,7 @@ export const buildReadyMadeDealCartItemPayload = ({
 }): AddCartItemPayload => ({
   branchId: getStringId(branchId),
   menuItemId: getStringId(item.id),
+  ...(getRestaurantMenuId(item) ? { restaurantMenuId: getRestaurantMenuId(item) } : {}),
   dealId: getStringId(deal.id),
   quantity: 1,
 });
@@ -153,6 +154,7 @@ export const buildCustomizableDealCartItemPayload = ({
 }): AddCartItemPayload => ({
   branchId: getStringId(branchId),
   menuItemId: getStringId(item.id),
+  ...(getRestaurantMenuId(item) ? { restaurantMenuId: getRestaurantMenuId(item) } : {}),
   dealId: getStringId(deal.id),
   quantity: 1,
   modifierSelections,
