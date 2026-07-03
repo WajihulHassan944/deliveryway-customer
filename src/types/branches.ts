@@ -8,9 +8,20 @@ export type BranchTemporaryClosure = {
   message?: string | null;
 };
 
+export type BranchScheduleTimings = {
+  deliveryIntervalMinutes?: number | string | null;
+  pickupIntervalMinutes?: number | string | null;
+  openingHours?: BranchHours[];
+  deliveryHours?: BranchHours[];
+  holidayOpeningHours?: BranchHolidayHours[];
+  [key: string]: unknown;
+};
+
 export type BranchAddress = {
   id?: string;
   street?: string | null;
+  shopNumber?: string | null;
+  houseNumber?: string | null;
   area?: string | null;
   city?: string | null;
   state?: string | null;
@@ -23,23 +34,34 @@ export type BranchAddress = {
 export type BranchSettings = {
   allowedOrderTypes?: BranchOrderType[];
   deliveryConfig?: unknown;
+  scheduleTimings?: BranchScheduleTimings | null;
   temporaryClosure?: BranchTemporaryClosure | null;
-  openingHours?: Array<{
-    dayOfWeek?: string;
-    isClosed?: boolean;
-    openTime?: string;
-    closeTime?: string;
-    breakTimes?: Array<{
-      startTime?: string;
-      endTime?: string;
-      note?: string;
-    }>;
-  }>;
+  tableReservationsEnabled?: boolean;
+  openingHours?: BranchHours[];
+  deliveryHours?: BranchHours[];
+  holidayOpeningHours?: BranchHolidayHours[];
   holidayRanges?: unknown[];
   reservationDateRanges?: unknown[];
   tableReservationDateRanges?: unknown[];
   reservationBlackoutRanges?: unknown[];
   [key: string]: unknown;
+};
+
+export type BranchHours = {
+  dayOfWeek?: string;
+  date?: string;
+  isClosed?: boolean;
+  openTime?: string;
+  closeTime?: string;
+  breakTimes?: Array<{
+    startTime?: string;
+    endTime?: string;
+    note?: string;
+  }>;
+};
+
+export type BranchHolidayHours = Omit<BranchHours, "dayOfWeek"> & {
+  date?: string;
 };
 
 export type NearbyBranch = {
@@ -48,6 +70,7 @@ export type NearbyBranch = {
   restaurantId?: string | null;
   address?: BranchAddress | null;
   settings?: BranchSettings | null;
+  scheduleTimings?: BranchScheduleTimings | null;
   distanceKm?: number | null;
   availability?: {
     isAvailable?: boolean;

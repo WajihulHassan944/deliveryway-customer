@@ -1,111 +1,214 @@
 // @refresh reset
-import { Star } from 'lucide-react';
-import Image from 'next/image';
 import { useTranslations } from "next-intl";
 
+const ASSET_BASE = "/app-promo";
+const INGREDIENTS_IMAGE = `${ASSET_BASE}/ingredients-Photoroom.png`;
+const PHONE_IMAGE = `${ASSET_BASE}/phone.png`;
+const MOBILE_PHONE_IMAGE = `${ASSET_BASE}/promo-phones.png`;
+const APP_STORE_BADGE_IMAGE = "/app-store-badge.png";
+const GOOGLE_PLAY_BADGE_IMAGE = "/google-play-badge.png";
+
 export default function AppPromo() {
-const t = useTranslations("home.appPromo");
+  const t = useTranslations("home.appPromo");
 
-return (
-  <section className="px-4 pt-5 pb-[80px]">
-    <div className="max-w-[1400px] mx-auto">
-      <div className="relative w-full overflow-hidden rounded-[20px]">
+  const tSafe = (key: string, fallback: string) => {
+    try {
+      const value = (t as unknown as (translationKey: string) => string)(key);
+      return value && value !== key ? value : fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
-        <Image
-          src="/banner-bg.png"
-          alt={t("bannerAlt")}
-          width={1920}
-          height={1080}
-          className="w-full h-[560px] md:h-full object-cover"
-        />
+  const features = [
+    tSafe("features.exclusiveOffers", "Exclusive app offers"),
+    tSafe("features.realTimeTracking", "Real-time tracking"),
+    tSafe("features.fasterOrdering", "Faster ordering"),
+    tSafe("features.easyReordering", "Easy reordering"),
+  ];
 
-        <div className="
-          absolute
-          top-0 md:-top-3
-          left-1/2 md:left-0
-          -translate-x-1/2 md:translate-x-0
-          z-20
-        ">
-          <div className="w-[180px] sm:w-[250px] md:w-[240px] lg:w-[430px]">
-            <img
-              src="/banner-mobile.png"
-              alt={t("appPreviewAlt")}
-              className="w-full h-auto drop-shadow-2xl"
-            />
-          </div>
-        </div>
+  return (
+    <section className="mx-auto max-w-[1400px] px-4 pt-5 pb-[80px] sm:px-6">
+      <div>
+        <div className="relative isolate min-h-[665px] overflow-hidden rounded-[20px] bg-[#fff7f7] px-5 py-8 shadow-[0_18px_50px_rgba(224,62,62,0.08)] sm:min-h-[705px] sm:px-7 lg:h-[320px] lg:min-h-0 lg:p-0 xl:h-[360px] 2xl:h-[380px]">
+          <div className="absolute inset-0 -z-10 bg-[#fff7f7]" />
+          <div className="absolute -left-[80px] -top-[120px] -z-10 h-[380px] w-[640px] rounded-full bg-[#ffe6e6]/65 blur-3xl" />
+          <div className="absolute left-[35%] top-[-170px] -z-10 h-[430px] w-[760px] rounded-full bg-white/80 blur-3xl" />
+          <div className="absolute bottom-[-160px] right-[-140px] -z-10 h-[460px] w-[760px] rounded-full bg-[#ffecec]/85 blur-3xl" />
+          <div className="pointer-events-none absolute inset-0 rounded-[20px] ring-1 ring-inset ring-[#ffe9e9]" />
 
-        <div className="
-          absolute top-0 h-full flex items-center
-          px-4 sm:px-6
-          md:left-10 md:pr-12 md:pl-[260px]
-          lg:pr-16 lg:pl-[320px]
-          w-full md:w-auto
-          pt-30 md:pt-0
-        ">
-          <div className="text-white max-w-xl md:max-w-2xl text-center md:text-left">
+          <img
+            src={INGREDIENTS_IMAGE}
+            alt=""
+            width={960}
+            height={410}
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            className="pointer-events-none absolute left-[1.4%] top-[10%] z-10 hidden h-auto w-[45%] max-w-[760px] select-none lg:block xl:left-[1.8%] 2xl:left-[2.2%]"
+          />
 
-            <h2 className="text-[22px] sm:text-[28px] md:text-[40px] font-bold mb-4 md:mb-8 leading-tight">
-              {t("titleLineOne")}<br className="hidden sm:block" />
-              {t("titleLineTwo")}
-            </h2>
+          <img
+            src={PHONE_IMAGE}
+            alt={tSafe("appPreviewAlt", "App preview")}
+            width={820}
+            height={610}
+            loading="lazy"
+            decoding="async"
+            className="pointer-events-none absolute left-[4.1%] top-[5.8%] z-20 hidden h-auto w-[30.5%] max-w-[520px] select-none lg:block xl:left-[4.4%] xl:w-[29.5%] 2xl:left-[4.8%] 2xl:w-[28.7%]"
+          />
 
-            <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8 justify-center md:justify-start">
+          {/* Desktop content layout */}
+          <div className="absolute inset-0 z-30 hidden h-full grid-cols-[39%_minmax(0,1fr)_170px] items-center gap-x-7 px-[4%] lg:grid xl:grid-cols-[39.5%_minmax(0,1fr)_215px] xl:gap-x-9 xl:px-[4.2%] 2xl:grid-cols-[38.5%_minmax(0,1fr)_235px] 2xl:gap-x-10 2xl:px-[4.4%]">
+            <div aria-hidden="true" />
 
-              <div className="flex justify-center md:justify-start -space-x-2">
-                {[1, 2, 3, 4, 5].map((i) => (
+            <div className="min-w-0 max-w-[760px]">
+              <p className="text-[14px] font-extrabold uppercase leading-none tracking-[0.12em] text-[#d71920] xl:text-[17px]">
+                {tSafe("eyebrow", "DELIVERYWAY MOBILE APP")}
+              </p>
+
+              <h2 className="mt-4 max-w-[720px] text-[30px] font-black leading-[1.08] tracking-[-0.045em] text-[#101014] xl:text-[38px] 2xl:text-[42px]">
+                {tSafe("headlineLineOne", "Great food,greater deals ")}&nbsp;
+                {tSafe("headlineLineTwo", "on the app")}
+              </h2>
+
+              <div className="mt-7 grid max-w-[700px] grid-cols-1 gap-x-8 gap-y-5 min-[1240px]:grid-cols-2 xl:max-w-[720px] xl:gap-x-12 2xl:max-w-[740px] 2xl:gap-x-14">
+                {features.map((feature) => (
                   <div
-                    key={i}
-                    className="w-[40px] h-[40px] md:w-[57px] md:h-[58px] rounded-full border-2 md:border-[3px] border-white overflow-hidden bg-gray-200"
+                    key={feature}
+                    className="flex min-w-0 items-center gap-3 text-[15px] font-semibold leading-tight text-[#6c6c73] xl:text-[18px]"
                   >
-                    <img
-                      src={`https://i.pravatar.cc/150?img=${i}`}
-                      alt={t("customerAlt")}
-                      className="w-full h-full object-cover"
-                    />
+                    <span className="flex h-[21px] w-[21px] shrink-0 items-center justify-center rounded-full border-[3px] border-[#ef5b61] text-[#ef5b61]">
+                      <svg
+                        width="11"
+                        height="9"
+                        viewBox="0 0 11 9"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M1.4 4.45 4.18 7.1 9.6 1.3"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span className="min-w-0 whitespace-nowrap">
+                      {feature}
+                    </span>
                   </div>
                 ))}
               </div>
+            </div>
 
-              <div className="flex flex-col items-center md:items-start">
-                <span className="text-sm md:text-lg font-bold">
-                  {t("happyCustomer")}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Star size={16} fill="#FFD700" stroke="#FFD700" />
-                  <span className="text-sm md:text-lg font-bold">4.8</span>
-                  <span className="text-xs md:text-base opacity-90">
-                    {t("review")}
+            <div className="flex w-full min-w-0 flex-col gap-4 justify-self-end xl:gap-5">
+              <img
+                src={APP_STORE_BADGE_IMAGE}
+                alt={tSafe("appStoreAlt", "Download on the App Store")}
+                width={320}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="h-auto w-full select-none rounded-[8px]"
+              />
+              <img
+                src={GOOGLE_PLAY_BADGE_IMAGE}
+                alt={tSafe("googlePlayAlt", "Get it on Google Play")}
+                width={320}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="h-auto w-full select-none rounded-[8px]"
+              />
+            </div>
+          </div>
+
+          {/* Mobile / tablet layout */}
+          <div className="relative z-20 flex flex-col items-center text-center lg:hidden">
+            <div className="relative mb-5 h-[270px] w-full max-w-[430px] sm:h-[310px]">
+              <img
+                src={INGREDIENTS_IMAGE}
+                alt=""
+                width={960}
+                height={410}
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+                className="pointer-events-none absolute left-1/2 top-2 h-auto w-[520px] max-w-none -translate-x-1/2 opacity-85"
+              />
+              <img
+                src={MOBILE_PHONE_IMAGE}
+                alt={tSafe("appPreviewAlt", "App preview")}
+                width={820}
+                height={610}
+                loading="lazy"
+                decoding="async"
+                className="pointer-events-none absolute left-1/2 top-0 h-auto w-[360px] max-w-none -translate-x-1/2 select-none sm:w-[420px]"
+              />
+            </div>
+
+            <p className="text-[13px] font-extrabold uppercase leading-none tracking-[0.14em] text-[#d71920]">
+              {tSafe("eyebrow", "DELIVERYWAY MOBILE APP")}
+            </p>
+
+            <h2 className="mt-4 max-w-[460px] text-[31px] font-black leading-[1.08] tracking-[-0.045em] text-[#101014] sm:text-[38px]">
+              {tSafe("headlineLineOne", "Great food, greater deals")}&nbsp;
+              {tSafe("headlineLineTwo", "on the app")}
+            </h2>
+
+            <div className="mt-7 grid w-full max-w-[420px] grid-cols-1 gap-4 sm:grid-cols-2">
+              {features.map((feature) => (
+                <div
+                  key={feature}
+                  className="flex items-center justify-center gap-3 text-[14px] font-semibold text-[#6c6c73] sm:justify-start"
+                >
+                  <span className="flex h-[21px] w-[21px] shrink-0 items-center justify-center rounded-full border-[3px] border-[#ef5b61] text-[#ef5b61]">
+                    <svg
+                      width="11"
+                      height="9"
+                      viewBox="0 0 11 9"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M1.4 4.45 4.18 7.1 9.6 1.3"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </span>
+                  <span>{feature}</span>
                 </div>
-              </div>
-
+              ))}
             </div>
 
-            <div className="flex md:hidden justify-center gap-3 mt-6">
+            <div className="mt-8 flex w-full max-w-[340px] flex-col gap-3 sm:max-w-[420px] sm:flex-row sm:justify-center">
               <img
-                src="/app-store.png"
-                className="w-[130px] sm:w-[150px]"
+                src={APP_STORE_BADGE_IMAGE}
+                alt={tSafe("appStoreAlt", "Download on the App Store")}
+                width={320}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="mx-auto h-auto w-[170px] select-none sm:w-[190px]"
               />
               <img
-                src="/google-play.png"
-                className="w-[130px] sm:w-[150px]"
+                src={GOOGLE_PLAY_BADGE_IMAGE}
+                alt={tSafe("googlePlayAlt", "Get it on Google Play")}
+                width={320}
+                height={96}
+                loading="lazy"
+                decoding="async"
+                className="mx-auto h-auto w-[170px] select-none sm:w-[190px]"
               />
             </div>
-
           </div>
         </div>
-
-        <div className="
-          hidden md:flex
-          flex-col gap-3 absolute right-16 top-1/2 transform -translate-y-1/2
-        ">
-          <img src="/app-store.png" className="w-[220px] lg:w-[254px]" />
-          <img src="/google-play.png" className="w-[220px] lg:w-[254px]" />
-        </div>
-
       </div>
-    </div>
-  </section>
-);
+    </section>
+  );
 }

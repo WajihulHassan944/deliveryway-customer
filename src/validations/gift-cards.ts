@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type {
+  GiftCardGuestPurchasePayload,
   GiftCardPurchasePayload,
   GiftCardRedeemPayload,
 } from "@/types/gift-cards";
@@ -31,9 +32,17 @@ export const giftCardPurchaseSchema = z.object({
     .positive("Gift card amount must be greater than 0"),
   title: optionalTrimmedString,
   message: optionalTrimmedString,
+  currency: optionalTrimmedString,
   expiresAt: optionalTrimmedString
     .refine((value) => !value || isValidDateTime(value), "Expiry date must be valid")
     .refine((value) => !value || isFutureDateTime(value), "Expiry date must be in the future"),
+});
+
+export const giftCardGuestPurchaseSchema = giftCardPurchaseSchema.extend({
+  buyerEmail: z.email("Enter a valid email address").trim(),
+  buyerName: optionalTrimmedString,
+  branchId: optionalTrimmedString,
+  currency: optionalTrimmedString,
 });
 
 export const giftCardRedeemSchema = z.object({
@@ -45,6 +54,7 @@ export const giftCardRedeemSchema = z.object({
 });
 
 export type GiftCardPurchaseFormValues = z.infer<typeof giftCardPurchaseSchema>;
+export type GiftCardGuestPurchaseFormValues = z.infer<typeof giftCardGuestPurchaseSchema>;
 export type GiftCardRedeemFormValues = z.infer<typeof giftCardRedeemSchema>;
 
 const getOptionalText = (value?: string) => {
@@ -61,7 +71,22 @@ export const buildGiftCardPurchasePayload = (
     amount: values.amount,
     ...(getOptionalText(values.title) ? { title: getOptionalText(values.title) } : {}),
     ...(getOptionalText(values.message) ? { message: getOptionalText(values.message) } : {}),
+    ...(getOptionalText(values.currency) ? { currency: getOptionalText(values.currency) } : {}),
     ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+  };
+};
+
+export const buildGiftCardGuestPurchasePayload = (
+  values: GiftCardGuestPurchaseFormValues
+): GiftCardGuestPurchasePayload => {
+  const purchasePayload = buildGiftCardPurchasePayload(values);
+
+  return {
+    ...purchasePayload,
+    buyerEmail: values.buyerEmail.trim(),
+    ...(getOptionalText(values.buyerName) ? { buyerName: getOptionalText(values.buyerName) } : {}),
+    ...(getOptionalText(values.branchId) ? { branchId: getOptionalText(values.branchId) } : {}),
+    ...(getOptionalText(values.currency) ? { currency: getOptionalText(values.currency) } : {}),
   };
 };
 

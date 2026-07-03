@@ -9,14 +9,23 @@ const getId = (value: unknown) => {
 export const getMenuItemBasePrice = (menuItem: MenuItem | null | undefined) =>
   toNumber(menuItem?.price ?? menuItem?.basePrice, 0);
 
+export const getMenuItemDisplayPrice = (menuItem: MenuItem | null | undefined) =>
+  toNumber(menuItem?.price ?? menuItem?.basePrice, 0);
+
 export const getVariationDisplayPrice = (menuItem: MenuItem | null | undefined, variation: MenuVariation | null | undefined) => {
-  if (!variation) return getMenuItemBasePrice(menuItem);
+  if (!variation) return getMenuItemDisplayPrice(menuItem);
 
   const override = normalizeArray<VariationPriceOverride>(menuItem?.variationPriceOverrides).find(
     (entry) => getId(entry.variationId ?? entry.variation?.id) === getId(variation.id)
   );
 
-  return toNumber(override?.price ?? variation.price ?? menuItem?.price ?? menuItem?.basePrice, 0);
+  return toNumber(
+    override?.price ??
+      variation.price ??
+      menuItem?.price ??
+      menuItem?.basePrice,
+    0
+  );
 };
 
 export const getVariationPickupPrice = (menuItem: MenuItem | null | undefined, variation: MenuVariation | null | undefined) => {

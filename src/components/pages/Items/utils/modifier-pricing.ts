@@ -1,3 +1,4 @@
+import { formatMoney } from "@/lib/money";
 import { normalizeArray, toNumber } from "./product-normalizers";
 
 type ModifierReference = {
@@ -120,6 +121,21 @@ const findModifierPrice = (
   return getPriceDelta(source);
 };
 
+const findModifierPriceOverride = (
+  sources: ModifierPriceSource[] | undefined,
+  modifierId: string
+) => {
+  return normalizeArray<ModifierPriceSource>(sources).find(
+    (entry) => getModifierId(entry) === modifierId
+  ) ?? null;
+};
+
+const getNestedModifierDefaultPrice = (source: ModifierPriceSource) => {
+  if (!source || !("modifier" in source) || !source.modifier) return null;
+
+  return getPriceDelta(source.modifier);
+};
+
 const getGroupsFromSource = (source: ModifierGroupSource): ModifierGroupSource[] => {
   if (!source) return [];
 
@@ -144,6 +160,9 @@ const getItemModifierGroups = (item: ModifierPricingMenuItem) => {
 const getItemModifierCandidates = (item: ModifierPricingMenuItem) => {
   return [
     ...normalizeArray<ModifierPriceSource>(item.modifiers),
+    ...normalizeArray<ModifierPriceSource>(item.modifierPriceOverrides).flatMap(
+      (override) => (override?.modifier ? [override.modifier] : [])
+    ),
     ...getItemModifierGroups(item).flatMap((group) =>
       normalizeArray<ModifierReference>(group?.modifiers)
     ),
@@ -192,15 +211,6 @@ export const getModifierPriceForVariation = ({
     return variationModifierPrice;
   }
 
-  const itemOverridePrice = findModifierPrice(
-    item.modifierPriceOverrides,
-    normalizedModifierId
-  );
-
-  if (itemOverridePrice !== null) {
-    return itemOverridePrice;
-  }
-
   const itemModifier = getItemModifierCandidates(item).find(
     (modifier) => getModifierId(modifier) === normalizedModifierId
   );
@@ -216,6 +226,25 @@ export const getModifierPriceForVariation = ({
 
   if (modifierVariationPrice !== null) {
     return modifierVariationPrice;
+  }
+
+  const itemOverride = findModifierPriceOverride(
+    item.modifierPriceOverrides,
+    normalizedModifierId
+  );
+  const itemOverridePrice = getPriceDelta(itemOverride);
+  const itemOverrideNestedDefaultPrice = getNestedModifierDefaultPrice(itemOverride);
+
+  if (itemOverridePrice !== null) {
+    if (itemOverridePrice !== 0 || itemOverrideNestedDefaultPrice === null) {
+      return itemOverridePrice;
+    }
+
+    if (itemOverrideNestedDefaultPrice !== 0) {
+      return itemOverrideNestedDefaultPrice;
+    }
+
+    return itemOverridePrice;
   }
 
   const modifierItemOverridePrice = findModifierPrice(
@@ -240,12 +269,23 @@ export const getModifierPriceForVariation = ({
   return toNumber(groupModifier?.priceDelta, 0);
 };
 
-export const formatModifierPriceDelta = (value: number | string | null | undefined) => {
+export const formatModifierPriceDelta = (
+  value: number | string | null | undefined,
+  currency?: string | null
+) => {
   const amount = toNumber(value, 0);
 
-  if (amount === 0) return "$0.00";
+  if (amount === 0) {
+    return formatMoney(0, currency, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
 
   const sign = amount > 0 ? "+" : "-";
 
-  return `${sign}$${Math.abs(amount).toFixed(2)}`;
+  return `${sign}${formatMoney(Math.abs(amount), currency, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };

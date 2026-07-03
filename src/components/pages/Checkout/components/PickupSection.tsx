@@ -4,6 +4,7 @@ import { SelectPickupTimeSection } from "@/components/pages/Checkout/components/
 import NotesSection from "@/components/pages/Checkout/components/NotesSection"
 import { PaymentMethodSection } from "@/components/pages/Checkout/components/PaymentMethodSection"
 import type { BranchRecord } from "@/types/branch-selector";
+import { useTranslations } from "next-intl";
 
 type PickupSectionProps = {
   selectedAddress: string | null;
@@ -27,17 +28,21 @@ type PickupSectionProps = {
   setPickupDate: (value: Date | null) => void;
   pickupTime: string | null;
   setPickupTime: (value: string | null) => void;
+  pickupScheduleMode: "now" | "schedule";
+  setPickupScheduleMode: (value: "now" | "schedule") => void;
   selectedBranch?: BranchRecord | null;
 };
 
 export function PickupSection(props: PickupSectionProps) {
+  const t = useTranslations("checkout");
+
   return (
     <div className="space-y-[38px]">
       <AddressSection {...props} />
       <NotesSection {...props} />
       <SelectPickupTimeSection {...props} />
       <CustomerDetailsForm {...props} editable={props.isGuest} />
-      <PaymentMethodSection {...props} />
+      <PaymentMethodSection {...props} cashLabel={t("cash")} />
     </div>
   );
 }

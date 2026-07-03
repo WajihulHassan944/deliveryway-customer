@@ -3,16 +3,20 @@
 import Image from "next/image";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import TestimonialsSection from "@/components/pages/Items/components/Testimonials";
 import useItems from "@/hooks/useItems";
 import { useCart } from "@/hooks/useCart";
 import { useAuthContext } from "@/hooks/useAuth";
-import { getStoredGroupOrderCode } from "@/lib/group-order";
+import { useHome } from "@/hooks/useHome";
+import { useCustomerReviews } from "@/hooks/useCustomerReviews";
+import { findCurrentGroupOrderParticipant, isGroupOrderParticipantCompleted, getStoredGroupOrderCode } from "@/lib/group-order";
+import { formatMoney as formatDisplayMoney, resolveCustomerCurrency } from "@/lib/money";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { Download, Eye, Loader2, Minus, Plus, X } from "lucide-react";
 import { AsyncSelect } from "@/components/ui/AsyncSelect";
+import { FavoriteHeartButton } from "@/components/common/favorites/FavoriteHeartButton";
 import type { CartPayload, CheckoutType, ItemPriceOverride, MenuItem, MenuVariation, Modifier, ModifierGroup, ModifierLink, ModifierSelectionMap, PromotionInfo, RawModifierLink, SelectedModifier, VariationPriceOverride } from "@/components/pages/Items/types";
 import {
   buildCartPayload,
@@ -59,26 +63,70 @@ const getCheckoutType = (type?: string | null): CheckoutType => {
 
 /* ================= PROMOTION HELPERS ================= */
 
-const formatMoney = (value: unknown) => {
-  return `$${toNumber(value, 0).toFixed(2)}`;
-};
+const formatMoney = (value: unknown, currency?: string | null) =>
+  formatDisplayMoney(value, currency, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-const formatModifierSelectionPrice = (unitPrice: number, quantity: number) => {
+const formatModifierSelectionPrice = (
+  unitPrice: number,
+  quantity: number,
+  currency?: string | null
+) => {
   const safeQuantity = Math.max(1, Math.floor(toNumber(quantity, 1)));
 
+  const sign = unitPrice >= 0 ? "+" : "-";
+  const absoluteUnitPrice = Math.abs(unitPrice);
+  const total = absoluteUnitPrice * safeQuantity;
+
   if (safeQuantity <= 1) {
-    return `+${formatMoney(unitPrice)}`;
+    return `${sign}${formatMoney(absoluteUnitPrice, currency)}`;
   }
 
-  return `+${formatMoney(unitPrice)} * ${safeQuantity} = +${formatMoney(unitPrice * safeQuantity)}`;
+  return `${sign}${formatMoney(absoluteUnitPrice, currency)} * ${safeQuantity} = ${sign}${formatMoney(total, currency)}`;
 };
 
 const isPromotionObject = (value: unknown): value is PromotionInfo => {
   return Boolean(value && typeof value === "object");
 };
 
+const hasPromotionSignal = (value: unknown): value is PromotionInfo => {
+  if (!value || typeof value !== "object") return false;
+
+  const promotion = value as PromotionInfo;
+  const record = value as ApiRecord;
+
+  if (
+    record.dealSelectionMode ||
+    record.dealRequiredQuantity !== undefined ||
+    Array.isArray(record.scopeCategoryRules) ||
+    Array.isArray(record.scopeCategoryIds) ||
+    record.supportsDealIdCartPayload === true ||
+    record.supportsDealCartPayload === true ||
+    record.isDealMenuItem === true ||
+    promotion.discountType === "FIXED_PRICE" ||
+    (promotion.applyMode && promotion.applyMode !== "SCOPED_ITEMS")
+  ) {
+    return false;
+  }
+
+  const discountValue = toNumber(promotion.discountValue, 0);
+
+  return Boolean(
+    ((promotion.discountType === "PERCENTAGE" || promotion.discountType === "FLAT") && discountValue > 0) ||
+      toNumber(promotion.discountAmount, 0) > 0 ||
+      toNumber(promotion.discountedPrice, 0) > 0 ||
+      toNumber(promotion.discountedAmount, 0) > 0
+  );
+};
+
 const getPromotionInfo = (source: ApiRecord | null | undefined): PromotionInfo | null => {
-  return isPromotionObject(source?.promotion) ? source.promotion : null;
+  if (isPromotionObject(source?.happyHour) && source.happyHour.isCurrentlyActive !== false) {
+    return source.happyHour;
+  }
+
+  return hasPromotionSignal(source?.promotion) ? source.promotion : null;
 };
 
 const getPromotionDiscountLabel = (promotion?: PromotionInfo | null) => {
@@ -105,31 +153,6 @@ const getPromotionTitle = (promotion?: PromotionInfo | null) => {
     getPromotionDiscountLabel(promotion) ||
     "Promotion applied"
   );
-};
-
-const getBackendDiscountedPriceCandidate = (
-  source: ApiRecord | null | undefined,
-  promotion?: PromotionInfo | null
-) => {
-  const candidates = [
-    source?.discountedPrice,
-    source?.discountedBasePrice,
-    promotion?.discountedAmount,
-  ];
-
-  for (const candidate of candidates) {
-    if (candidate === undefined || candidate === null || candidate === "") {
-      continue;
-    }
-
-    const numeric = toNumber(candidate, Number.NaN);
-
-    if (Number.isFinite(numeric) && numeric >= 0) {
-      return numeric;
-    }
-  }
-
-  return null;
 };
 
 const calculatePromotionDiscount = (
@@ -180,22 +203,12 @@ const getPromotionPricing = ({
     };
   }
 
-  const backendDiscountedPrice = getBackendDiscountedPriceCandidate(
-    source,
-    promotion
-  );
-
   const calculatedDiscount = calculatePromotionDiscount(
     safeOriginalPrice,
     promotion
   );
 
-  const calculatedFinalPrice = Math.max(0, safeOriginalPrice - calculatedDiscount);
-
-  const finalPrice =
-    backendDiscountedPrice !== null && backendDiscountedPrice <= safeOriginalPrice
-      ? backendDiscountedPrice
-      : calculatedFinalPrice;
+  const finalPrice = Math.max(0, safeOriginalPrice - calculatedDiscount);
 
   const discountAmount = Math.max(0, safeOriginalPrice - finalPrice);
 
@@ -215,11 +228,20 @@ const getPromotionSourceForPrice = (menuItem: MenuItem | null, variation?: MenuV
   return variation || menuItem;
 };
 
-function PromotionBadge({ promotion }: { promotion?: PromotionInfo | null }) {
+function PromotionBadge({
+  promotion,
+  currency,
+}: {
+  promotion?: PromotionInfo | null;
+  currency?: string | null;
+}) {
   const t = useTranslations("productDetails");
   if (!promotion) return null;
 
-  const label = getPromotionDiscountLabel(promotion);
+  const label = getPromotionDiscountLabel(promotion)?.replace(
+    formatMoney(toNumber(promotion.discountValue, 0)),
+    formatMoney(toNumber(promotion.discountValue, 0), currency)
+  );
 
   return (
     <span className="inline-flex w-fit items-center rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-semibold text-green-700 ring-1 ring-green-100">
@@ -232,21 +254,23 @@ function PromotionPrice({
   pricing,
   className = "",
   originalClassName = "",
+  currency,
 }: {
   pricing: PromotionPricing;
   className?: string;
   originalClassName?: string;
+  currency?: string | null;
 }) {
   if (!pricing.hasDiscount) {
-    return <span className={className}>{formatMoney(pricing.originalPrice)}</span>;
+    return <span className={className}>{formatMoney(pricing.originalPrice, currency)}</span>;
   }
 
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <span className={`text-gray-400 line-through ${originalClassName}`}>
-        {formatMoney(pricing.originalPrice)}
+        {formatMoney(pricing.originalPrice, currency)}
       </span>
-      <span>{formatMoney(pricing.finalPrice)}</span>
+      <span>{formatMoney(pricing.finalPrice, currency)}</span>
     </span>
   );
 }
@@ -812,6 +836,7 @@ const getModifierSideVariationOverrides = (menuItem: MenuItem | null, modifier: 
 function ProductDetailsPageContent() {
   const t = useTranslations("productDetails");
   const tErrors = useTranslations("errors");
+  const locale = useLocale();
   const params = useSearchParams();
   const slug = params.get("slug");
   const itemIdParam = params.get("itemId") || "";
@@ -857,13 +882,46 @@ function ProductDetailsPageContent() {
 
   const { user } = useAuth();
   const customerId = user?.id;
-  const branchId = user?.branchId;
-  const restaurantId =
+  const branchId = user?.branchId ? String(user.branchId) : "";
+  const restaurantId = String(
     item?.restaurantId ||
-    item?.restaurant?.id ||
-    user?.restaurantId ||
+      item?.restaurant?.id ||
+      user?.restaurantId ||
+      ""
+  );
+  const homeQuery = useHome(
+    restaurantId,
+    branchId,
+    Boolean(token && restaurantId && branchId)
+  );
+  const { reviews: customerReviews } = useCustomerReviews({
+    restaurantId,
+    branchId,
+    page: 1,
+    limit: 50,
+    locale,
+  });
+  const itemReviews = useMemo(() => {
+    const currentMenuItemId = getId(item?.id);
 
-    "";
+    if (!currentMenuItemId) {
+      return [];
+    }
+
+    return customerReviews.filter((review) =>
+      review.order?.items.some(
+        (reviewItem) => reviewItem.menuItemId === currentMenuItemId
+      )
+    );
+  }, [customerReviews, item?.id]);
+  const itemAverageRating = itemReviews.length
+    ? itemReviews.reduce((total, review) => total + review.rating, 0) /
+      itemReviews.length
+    : null;
+  const currency = resolveCustomerCurrency({
+    configCurrency: homeQuery.data?.data.config?.currency,
+    restaurant: homeQuery.data?.data.restaurant,
+  });
 
 
   const getMenuItemBasePrice = (menuItem: MenuItem | null) => {
@@ -992,8 +1050,10 @@ function ProductDetailsPageContent() {
         price: getVariationDisplayPrice(menuItem, raw),
         pickupPrice: getVariationPickupPrice(menuItem, raw),
         displayText: getVariationDisplayText(menuItem, raw),
-        discountedPrice: raw?.discountedPrice ?? raw?.promotion?.discountedAmount ?? null,
+        discountedPrice: raw?.happyHourDiscountedPrice ?? raw?.discountedPrice ?? raw?.happyHour?.discountedPrice ?? raw?.promotion?.discountedAmount ?? null,
+        happyHourDiscountedPrice: raw?.happyHourDiscountedPrice ?? raw?.happyHour?.discountedPrice ?? null,
         promotion: getPromotionInfo(raw),
+        happyHour: raw?.happyHour ?? null,
         sortOrder: toNumber(raw?.sortOrder, 0),
         isDefault: Boolean(raw?.isDefault),
         isActive: raw?.isActive !== false,
@@ -1474,8 +1534,14 @@ function ProductDetailsPageContent() {
       try {
         setPageLoading(true);
 
+        const params = new URLSearchParams({ search: searchValue });
+
+        if (branchId) {
+          params.set("branchId", branchId);
+        }
+
         const { response: res, items } = await fetchMenuItems(
-          `/v1/menu/items?search=${encodeURIComponent(searchValue)}`
+          `/v1/menu/items?${params.toString()}`
         );
 
         if (!isMounted) return;
@@ -1525,7 +1591,7 @@ function ProductDetailsPageContent() {
     return () => {
       isMounted = false;
     };
-  }, [slug, itemIdParam, token, fetchMenuItems]);
+  }, [slug, itemIdParam, token, branchId, fetchMenuItems]);
 
   useEffect(() => {
     const fetchCartItemToEdit = async () => {
@@ -1865,6 +1931,10 @@ function ProductDetailsPageContent() {
       queryParams.set("restaurantId", String(restaurantId));
     }
 
+    if (branchId) {
+      queryParams.set("branchId", branchId);
+    }
+
     const resolvedSearch = search?.trim();
 
     if (resolvedSearch) {
@@ -2037,11 +2107,12 @@ function ProductDetailsPageContent() {
                       </span>
                     </label>
 
-                    {effectivePrice > 0 ? (
+                    {effectivePrice !== 0 ? (
                       <span className="shrink-0 text-right font-medium text-primary">
                         {formatModifierSelectionPrice(
                           effectivePrice,
-                          selectedModifierQuantity
+                          selectedModifierQuantity,
+                          currency
                         )}
                       </span>
                     ) : null}
@@ -2215,6 +2286,16 @@ function ProductDetailsPageContent() {
           return;
         }
 
+        const currentParticipant = findCurrentGroupOrderParticipant({
+          order: groupOrder,
+          userId: customerId,
+        });
+
+        if (isGroupOrderParticipantCompleted(currentParticipant)) {
+          toast.error(t("groupOrderCompletedCannotEdit"));
+          return;
+        }
+
         const groupPayload = buildPatchCartPayload();
         groupPayload.menuItemId = item.id;
 
@@ -2269,7 +2350,7 @@ function ProductDetailsPageContent() {
       );
 
       if (groupCode) {
-        router.push("/group-order/lobby");
+        window.dispatchEvent(new Event("deliveryway:group-order:item-added"));
       } else if (isEditingCartItem) {
         router.push(`/checkout?type=${checkoutType}`);
       }
@@ -2308,7 +2389,7 @@ function ProductDetailsPageContent() {
     <>
       <div className="mx-auto grid grid-cols-1 gap-8 px-4 py-6 sm:px-6 md:grid-cols-2 md:px-10 md:py-10 lg:gap-12 lg:px-40">
         <div className="flex flex-col gap-6">
-          <div className="overflow-hidden rounded-2xl">
+          <div className="relative overflow-hidden rounded-2xl">
             <Image
               src={item?.imageUrl || "/placeholder.png"}
               alt={item?.name || t("productImageAlt")}
@@ -2316,6 +2397,11 @@ function ProductDetailsPageContent() {
               height={600}
               className="h-[250px] w-full object-cover sm:h-[350px] md:h-auto"
               unoptimized
+            />
+
+            <FavoriteHeartButton
+              menuItemId={item?.id}
+              className="absolute left-3 top-3 z-10"
             />
           </div>
 
@@ -2337,21 +2423,37 @@ function ProductDetailsPageContent() {
                 {item?.name}
               </h1>
 
-              {hasProductInfoContent(item) ? (
-                <button
-                  type="button"
-                  onClick={() => setInfoOpen(true)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-primary hover:text-white"
-                  title={t("viewProductInformation")}
-                >
-                  <Eye size={18} />
-                </button>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-2">
+                <FavoriteHeartButton
+                  menuItemId={item?.id}
+                  className="h-9 w-9 border border-gray-100"
+                />
+
+                {hasProductInfoContent(item) ? (
+                  <button
+                    type="button"
+                    onClick={() => setInfoOpen(true)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-primary hover:text-white"
+                    title={t("viewProductInformation")}
+                  >
+                    <Eye size={18} />
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="mt-2 flex flex-wrap gap-2 text-sm text-gray-500">
-              <span className="font-medium text-primary">★ 4.8</span>
-              <span>(150 reviews)</span>
+              {itemAverageRating ? (
+                <>
+                  <span className="font-medium text-primary">
+                    ★ {itemAverageRating.toFixed(1)}
+                  </span>
+                  <span>
+                    ({itemReviews.length}{" "}
+                    {itemReviews.length === 1 ? "review" : "reviews"})
+                  </span>
+                </>
+              ) : null}
               <span>• 20–25 mins delivery</span>
             </div>
           </div>
@@ -2372,14 +2474,15 @@ function ProductDetailsPageContent() {
                       hasDiscount: true,
                     }}
                     originalClassName="text-base font-semibold"
+                    currency={currency}
                   />
                 ) : (
-                  formatMoney(totalPrice)
+                  formatMoney(totalPrice, currency)
                 )}
               </div>
 
               {activeVisiblePromotion ? (
-                <PromotionBadge promotion={activeVisiblePromotion} />
+                <PromotionBadge promotion={activeVisiblePromotion} currency={currency} />
               ) : null}
             </div>
 
@@ -2397,7 +2500,7 @@ function ProductDetailsPageContent() {
 
                 {hasTotalPromotionDiscount ? (
                   <p className="mt-1 text-xs text-green-700">
-                    You save {formatMoney(totalPromotionDiscount)}
+                    You save {formatMoney(totalPromotionDiscount, currency)}
                   </p>
                 ) : null}
               </div>
@@ -2411,7 +2514,7 @@ function ProductDetailsPageContent() {
 
             {depositAmount > 0 ? (
               <p className="mt-1 text-xs text-amber-600">
-                Includes deposit {formatMoney(depositAmount)} per item
+                Includes deposit {formatMoney(depositAmount, currency)} per item
               </p>
             ) : null}
           </div>
@@ -2478,12 +2581,14 @@ function ProductDetailsPageContent() {
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <PromotionBadge
                                   promotion={variationPromotionPricing.promotion}
+                                  currency={currency}
                                 />
 
                                 {variationPromotionPricing.hasDiscount ? (
                                   <span className="text-xs font-medium text-green-700">
                                     Save {formatMoney(
-                                      variationPromotionPricing.discountAmount
+                                      variationPromotionPricing.discountAmount,
+                                      currency
                                     )}
                                   </span>
                                 ) : null}
@@ -2493,7 +2598,7 @@ function ProductDetailsPageContent() {
                         </div>
 
                         <div className="shrink-0 text-right font-medium text-primary">
-                          <PromotionPrice pricing={variationPromotionPricing} />
+                          <PromotionPrice pricing={variationPromotionPricing} currency={currency} />
                         </div>
                       </div>
                     </label>
@@ -2568,12 +2673,13 @@ function ProductDetailsPageContent() {
 
                         {splitPizzaResolvedItemPrice > 0 ? (
                           <div className="shrink-0 text-right font-medium text-primary">
-                            <PromotionPrice pricing={splitPizzaPromotionPricing} />
+                            <PromotionPrice pricing={splitPizzaPromotionPricing} currency={currency} />
 
                             {splitPizzaPromotionPricing.hasPromotion ? (
                               <div className="mt-1 flex justify-end">
                                 <PromotionBadge
                                   promotion={splitPizzaPromotionPricing.promotion}
+                                  currency={currency}
                                 />
                               </div>
                             ) : null}
@@ -2663,7 +2769,7 @@ function ProductDetailsPageContent() {
                 ? isEditingCartItem
                   ? t("updating")
                   : t("processing")
-                : `${isEditingCartItem ? t("updateCart") : t("addToCart")} | ${formatMoney(displayTotalPrice)}`}
+                : `${isEditingCartItem ? t("updateCart") : t("addToCart")} | ${formatMoney(displayTotalPrice, currency)}`}
             </button>
           </div>
         </div>
@@ -2694,7 +2800,11 @@ function ProductDetailsPageContent() {
         </div>
       ) : null}
 
-      <TestimonialsSection />
+      <TestimonialsSection
+        reviews={itemReviews}
+        menuItemId={getId(item.id)}
+        averageRating={itemAverageRating}
+      />
     </>
   );
 }

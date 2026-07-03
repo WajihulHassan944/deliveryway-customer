@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
-import { FaFacebook } from "react-icons/fa"
 import { FcGoogle } from "react-icons/fc"
 import { toast } from "sonner"
 import { useTranslations } from "next-intl"
@@ -19,7 +18,7 @@ import { useAuthContext } from "@/hooks/useAuth"
 import { getAuthErrorMessage } from "@/lib/auth"
 import { getStoredGroupOrderCode } from "@/lib/group-order"
 import { roboto } from "@/lib/fonts"
-import { guestLoginCustomer, loginCustomer } from "@/services/auth"
+import { googleLoginCustomer, guestLoginCustomer, loginCustomer } from "@/services/auth"
 import {
   createGuestLoginSchema,
   createLoginSchema,
@@ -27,6 +26,52 @@ import {
   type GuestLoginFormValues,
   type LoginFormValues,
 } from "@/validations/auth"
+
+type GoogleCredentialResponse = { credential?: string }
+
+type GoogleAccounts = {
+  id?: {
+    initialize: (config: {
+      client_id: string
+      callback: (response: GoogleCredentialResponse) => void
+    }) => void
+    prompt: () => void
+  }
+}
+
+type GoogleWindow = Window & { google?: { accounts?: GoogleAccounts } }
+
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""
+
+const loadGoogleIdentityScript = () =>
+  new Promise<void>((resolve, reject) => {
+    if ((window as GoogleWindow).google?.accounts?.id) {
+      resolve()
+      return
+    }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://accounts.google.com/gsi/client"]'
+    )
+
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true })
+      existingScript.addEventListener("error", () => reject(new Error("Google login failed to load")), {
+        once: true,
+      })
+      return
+    }
+
+    const script = document.createElement("script")
+    script.src = "https://accounts.google.com/gsi/client"
+    script.async = true
+    script.defer = true
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error("Google login failed to load"))
+    document.head.appendChild(script)
+  })
+
+const getGroupOrderCode = () => getStoredGroupOrderCode()
 
 const useAuthValidationMessages = (): AuthValidationMessages => {
   const t = useTranslations("validation")
@@ -57,6 +102,7 @@ export function LoginForm() {
   const { login } = useAuthContext()
 
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
   const [isGuestMode, setIsGuestMode] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const validationMessages = useAuthValidationMessages()
@@ -88,7 +134,17 @@ export function LoginForm() {
     },
   })
 
-const getGroupOrderCode = () => getStoredGroupOrderCode();
+  const redirectAfterLogin = () => {
+    const code = getGroupOrderCode()
+
+    setTimeout(() => {
+      if (code) {
+        router.push("/items")
+      } else {
+        router.push("/")
+      }
+    }, 1000)
+  }
 
   // ================= NORMAL LOGIN =================
   const onSubmit = async (values: LoginFormValues) => {
@@ -100,15 +156,7 @@ const getGroupOrderCode = () => getStoredGroupOrderCode();
       login(data)
 
       toast.success(t("loginSuccessful"))
-const code = getGroupOrderCode();
-
-setTimeout(() => {
-  if (code) {
-    router.push("/categories");
-  } else {
-    router.push("/");
-  }
-}, 1000);
+      redirectAfterLogin()
     } catch (error) {
       toast.error(getAuthErrorMessage(error))
     } finally {
@@ -126,20 +174,65 @@ setTimeout(() => {
       login(data)
 
       toast.success(t("guestSessionStarted"))
-
-   const code = getGroupOrderCode();
-
-setTimeout(() => {
-  if (code) {
-    router.push("/categories");
-  } else {
-    router.push("/");
-  }
-}, 1000);
+      redirectAfterLogin()
     } catch (error) {
       toast.error(getAuthErrorMessage(error))
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    const restaurantId = loginForm.getValues("restaurantId").trim()
+
+    if (!restaurantId) {
+      toast.error(validationMessages.restaurantIdRequired)
+      loginForm.setFocus("restaurantId")
+      return
+    }
+
+    if (!googleClientId) {
+      toast.error(t("googleClientMissing"))
+      return
+    }
+
+    try {
+      setIsGoogleSubmitting(true)
+      await loadGoogleIdentityScript()
+      const googleId = (window as GoogleWindow).google?.accounts?.id
+
+      if (!googleId) {
+        throw new Error(t("googleUnavailable"))
+      }
+
+      googleId.initialize({
+        client_id: googleClientId,
+        callback: async (response: GoogleCredentialResponse) => {
+          try {
+            if (!response.credential) {
+              throw new Error(t("googleCredentialMissing"))
+            }
+
+            const data = await googleLoginCustomer({
+              idToken: response.credential,
+              restaurantId,
+            })
+
+            login(data)
+            toast.success(t("loginSuccessful"))
+            redirectAfterLogin()
+          } catch (error) {
+            toast.error(getAuthErrorMessage(error))
+          } finally {
+            setIsGoogleSubmitting(false)
+          }
+        },
+      })
+
+      googleId.prompt()
+    } catch (error) {
+      setIsGoogleSubmitting(false)
+      toast.error(error instanceof Error ? error.message : getAuthErrorMessage(error))
     }
   }
 
@@ -259,21 +352,13 @@ setTimeout(() => {
       <div className="space-y-5 flex flex-col items-center">
         <button
           type="button"
-          className="w-[345px] flex items-center justify-center h-[54px] bg-blue text-white rounded-[10px]"
-        >
-          <FaFacebook className="w-[23px] h-[23px] mr-[15px]" />
-          <span className={`${roboto.className} text-xl`}>
-            {t("signInWithFacebook")}
-          </span>
-        </button>
-
-        <button
-          type="button"
-        className="w-[345px] flex items-center justify-center h-[54px] font-medium bg-transparent rounded-[10px] hover:bg-gray-100 shadow-sm border border-gray-200"
+          disabled={isLoading || isGoogleSubmitting}
+          onClick={handleGoogleLogin}
+          className="w-[345px] flex items-center justify-center h-[54px] font-medium bg-transparent rounded-[10px] hover:bg-gray-100 shadow-sm border border-gray-200"
         >
           <FcGoogle className="w-[24px] h-[24px] mr-[15px]" />
           <span className={`${roboto.className} text-xl text-gray-500`}>
-            {t("signInWithGoogle")}
+            {isGoogleSubmitting ? t("loggingIn") : t("signInWithGoogle")}
           </span>
         </button>
 

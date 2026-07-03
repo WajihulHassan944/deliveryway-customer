@@ -1,10 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { Store } from "lucide-react";
+import { BadgePercent, Clock3, MapPinned, ShoppingBag, Store, Truck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 
 import { useAuthContext } from "@/hooks/useAuth";
 import { useNearbyBranches } from "@/hooks/useBranches";
@@ -15,16 +16,24 @@ import {
   branchSupportsPickup,
   formatBranchAddress,
   formatBranchDistance,
+  getSelectedOrderType,
   isBranchCurrentlyAvailable,
   nearbyBranchToBranchRecord,
   persistSelectedBranch,
 } from "@/lib/branch-selector";
-import { resolveHttpsImageUrl } from "@/lib/image-fallback";
+import {
+  checkoutTypeToOrderType,
+  getStoredCheckoutTypePreference,
+  setStoredCheckoutTypePreference,
+} from "@/lib/checkout-type-preference";
+import { isRemoteHttpsImageUrl, resolveHttpsImageUrl } from "@/lib/image-fallback";
 import type { BranchOrderType, NearbyBranch } from "@/types/branches";
 
 type HeroSectionProps = {
   restaurantName?: string;
   tagline?: string;
+  title?: string;
+  description?: string;
   heroImage?: string | null;
 };
 
@@ -34,11 +43,12 @@ const getOrderType = (mode: BranchSearchMode): BranchOrderType =>
   mode === "pickup" ? "TAKEAWAY" : "DELIVERY";
 
 export const HeroSection = ({
-  restaurantName,
-  tagline,
+  title,
+  description,
   heroImage = "/hero.png",
 }: HeroSectionProps) => {
   const t = useTranslations("home.hero");
+  const router = useRouter();
   const { user, setUser } = useAuthContext();
   const resolvedHeroImage = resolveHttpsImageUrl(heroImage, "/hero.png");
   const branchSearchRef = useRef<HTMLDivElement | null>(null);
@@ -64,11 +74,29 @@ export const HeroSection = ({
     { enabled: showResults }
   );
 
-  const displayRestaurantName = restaurantName || t("defaultTitle");
-  const displayTagline = tagline || t("defaultTagline");
   const selectedBranch = user?.branch ?? null;
-  const selectedOrderType = user?.selectedOrderType ?? selectedBranch?.selectedOrderType ?? null;
+  const selectedOrderType = getSelectedOrderType(user);
   const selectedOrderLabel = selectedOrderType === "TAKEAWAY" ? "Pickup" : selectedOrderType === "DELIVERY" ? "Delivery" : "";
+  const isSelectedBranchAvailable = selectedBranch ? isBranchCurrentlyAvailable(selectedBranch) : true;
+  const orderPanelTitle = mode === "delivery"
+    ? isSelectedBranchAvailable
+      ? t("deliveryPanelTitle")
+      : t("scheduleDeliveryPanelTitle")
+    : mode === "pickup"
+    ? isSelectedBranchAvailable
+      ? t("pickupPanelTitle")
+      : t("schedulePickupPanelTitle")
+    : t("orderPanelTitle");
+  const hasOrderTypeRules = Boolean(selectedBranch?.settings?.allowedOrderTypes?.length);
+  const showDeliveryOption = !hasOrderTypeRules || (selectedBranch ? branchSupportsDelivery(selectedBranch) : false);
+  const showPickupOption = !hasOrderTypeRules || (selectedBranch ? branchSupportsPickup(selectedBranch) : false);
+  const availableModes = useMemo(
+    () => [
+      ...(showDeliveryOption ? ["delivery" as const] : []),
+      ...(showPickupOption ? ["pickup" as const] : []),
+    ],
+    [showDeliveryOption, showPickupOption]
+  );
 
   const filteredBranches = useMemo(
     () =>
@@ -105,12 +133,44 @@ export const HeroSection = ({
     };
   }, [showResults]);
 
+  useEffect(() => {
+    if (availableModes.length > 0 && !availableModes.includes(mode)) {
+      setMode(availableModes[0]);
+    }
+  }, [availableModes, mode]);
+
+  useEffect(() => {
+    const storedMode = getStoredCheckoutTypePreference();
+
+    if (!storedMode || !availableModes.includes(storedMode)) return;
+
+    setMode(storedMode);
+  }, [availableModes]);
+
+  const handleModeChange = (nextMode: BranchSearchMode) => {
+    setMode(nextMode);
+    setStoredCheckoutTypePreference(nextMode);
+
+    if (selectedBranch) {
+      persistSelectedBranch({
+        ...selectedBranch,
+        settings: selectedBranch.settings ?? undefined,
+      }, setUser, {
+        orderType: checkoutTypeToOrderType(nextMode),
+      });
+    }
+  };
+
   const handleFindNearbyBranches = () => {
     setShowResults(true);
 
     if (!coordinates) {
       requestLocation();
     }
+  };
+
+  const handleFindFood = () => {
+    router.push("/items");
   };
 
   const handleUseCurrentLocation = () => {
@@ -135,42 +195,84 @@ export const HeroSection = ({
   };
 
   return (
-    <main className="relative flex min-h-[630px] w-full items-center justify-center py-10 md:py-16">
+    <main className="relative flex min-h-[680px] w-full items-center overflow-hidden pb-12 pt-8 md:pb-16 md:pt-10 lg:min-h-[720px]">
       <div className="absolute inset-0 z-0">
         <Image
           src={resolvedHeroImage}
           alt={t("heroImageAlt")}
           fill
-          className="object-cover brightness-75"
+          className="object-cover"
           priority
+          unoptimized={isRemoteHttpsImageUrl(resolvedHeroImage)}
         />
       </div>
+      <div className="absolute inset-0 z-0 bg-gradient-to-r from-black/70 via-black/38 to-black/12" />
 
-      <div className="relative z-10 ml-0 flex w-full max-w-4xl flex-col items-center px-4 md:ml-20">
-        <h1 className="mb-2 text-5xl font-extrabold text-white drop-shadow-md md:text-7xl">
-          {displayRestaurantName}
-        </h1>
-        <p className="mb-8 text-[22px] font-medium text-white">
-          {displayTagline}
-        </p>
+      <div className="relative z-10 mx-auto grid w-full max-w-[1400px] items-center gap-10 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_520px] lg:px-8">
+        <div className="max-w-[720px] text-white">
+          {/* Restaurant name intentionally hidden from the banner per design request. */}
 
-        <div className="w-full rounded-2xl bg-white p-6 shadow-xl md:p-8">
-          <div className="mb-6 inline-flex rounded-xl bg-[#F5F5F5] p-1">
-            {(["delivery", "pickup"] as const).map((nextMode) => (
-              <button
-                key={nextMode}
-                type="button"
-                onClick={() => setMode(nextMode)}
-                className={`min-w-[116px] rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
-                  mode === nextMode
-                    ? "bg-primary text-white shadow-sm"
-                    : "text-[#757575] hover:bg-white"
-                }`}
-              >
-                {nextMode === "delivery" ? "Delivery" : "Pickup"}
-              </button>
-            ))}
+          <h1 className="max-w-[680px] text-[46px] font-black leading-[0.95] tracking-normal text-white sm:text-[62px] lg:text-[76px]">
+            {title || t("deliveryTitle")}
+          </h1>
+
+          <p className="mt-6 max-w-[560px] text-lg font-medium leading-8 text-white/86">
+            {description || t("description")}
+          </p>
+
+          <div className="mt-6 grid max-w-[680px] gap-2.5 sm:grid-cols-3">
+            <div className="rounded-[18px] bg-white/13 p-3 ring-1 ring-white/18 backdrop-blur">
+              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-white text-primary">
+                <Clock3 size={16} />
+              </div>
+              <p className="text-sm font-bold text-white">{t("freshTitle")}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/72">{t("freshDescription")}</p>
+            </div>
+
+            <div className="rounded-[18px] bg-white/13 p-3 ring-1 ring-white/18 backdrop-blur">
+              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-white text-primary">
+                <MapPinned size={16} />
+              </div>
+              <p className="text-sm font-bold text-white">{t("trackingTitle")}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/72">{t("trackingDescription")}</p>
+            </div>
+
+            <div className="rounded-[18px] bg-white/13 p-3 ring-1 ring-white/18 backdrop-blur">
+              <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-white text-primary">
+                <BadgePercent size={16} />
+              </div>
+              <p className="text-sm font-bold text-white">{t("offersTitle")}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/72">{t("offersDescription")}</p>
+            </div>
           </div>
+        </div>
+
+        <div className="w-full rounded-[30px] bg-white p-5 shadow-[0_24px_80px_rgba(17,24,39,0.22)] ring-1 ring-black/5 md:p-7">
+          <div className="mb-5">
+            <h2 className="text-2xl font-black tracking-normal text-[#171717]">
+              {orderPanelTitle}
+            </h2>
+          </div>
+
+          {availableModes.length > 0 ? (
+            <div className="mb-6 grid grid-cols-2 rounded-2xl bg-[#F5F5F5] p-1">
+              {availableModes.map((nextMode) => (
+                <button
+                  key={nextMode}
+                  type="button"
+                  onClick={() => handleModeChange(nextMode)}
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-all ${
+                    mode === nextMode
+                      ? "bg-primary text-white shadow-sm"
+                      : "text-[#757575] hover:bg-white"
+                  }`}
+                >
+                  {nextMode === "delivery" ? <Truck size={17} /> : <ShoppingBag size={17} />}
+                  {nextMode === "delivery" ? "Delivery" : "Pickup"}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {selectedBranch ? (
             <div className="mb-4 flex flex-col gap-3 rounded-xl border border-primary/15 bg-primary/5 p-4 md:flex-row md:items-center md:justify-between">
@@ -205,6 +307,16 @@ export const HeroSection = ({
               onUseCurrentLocation={handleUseCurrentLocation}
               isLocating={permissionState === "requesting"}
               showSelectedLabel={false}
+              actionsBelow
+              trailingAction={
+                <button
+                  type="button"
+                  onClick={handleFindFood}
+                  className="inline-flex h-[49px] min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-primary/20 bg-white px-2.5 text-xs font-semibold text-primary transition hover:bg-primary/5 sm:px-4 sm:text-sm"
+                >
+                  {t("findFood")}
+                </button>
+              }
             />
 
             {showResults ? (

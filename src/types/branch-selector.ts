@@ -1,4 +1,10 @@
-import type { BranchAddress, BranchOrderType, BranchSettings, BranchTemporaryClosure } from "@/types/branches";
+import type {
+  BranchAddress,
+  BranchOrderType,
+  BranchScheduleTimings,
+  BranchSettings,
+  BranchTemporaryClosure,
+} from "@/types/branches";
 
 export type BranchRecord = {
   id: string;
@@ -7,6 +13,7 @@ export type BranchRecord = {
   restaurantId?: string | null;
   address?: BranchAddress;
   settings?: BranchSettings;
+  scheduleTimings?: BranchScheduleTimings | null;
   distanceKm?: number | null;
   availability?: {
     isAvailable?: boolean;
@@ -17,6 +24,17 @@ export type BranchRecord = {
     reason?: string | null;
     temporaryClosure?: BranchTemporaryClosure | null;
     holidayOpeningHour?: unknown;
+  } | null;
+  landingPopup?: {
+    show?: boolean;
+    type?: string;
+    title?: string;
+    message?: string;
+    period?: {
+      fromDate?: string | null;
+      toDate?: string | null;
+    } | null;
+    temporaryClosure?: BranchTemporaryClosure | null;
   } | null;
   selectedOrderType?: BranchOrderType;
   coverImage?: string | null;

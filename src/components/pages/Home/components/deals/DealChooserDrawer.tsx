@@ -28,6 +28,7 @@ import {
   getDealChooserModifierGroups,
   getDealChooserModifierName,
   getDealChooserNumber,
+  getDealChooserSelectedModifiersTotal,
   getSelectedModifiersByGroup,
   isDealChooserItemConfigurable,
   validateDealChooserItemConfiguration,
@@ -52,15 +53,29 @@ type DealChooserDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   branchId?: string | null;
+  currency?: string | null;
 };
 
 const getMenuItemInitial = (name: string) => name.trim().charAt(0).toUpperCase() || "?";
 
-const getMenuItemPrice = (item: CustomerDealMenuItem) =>
-  item.discountedBasePrice ?? item.basePrice;
+const formatModifierSelectionPrice = (
+  unitPrice: number,
+  quantity: number,
+  currency?: string | null
+) => {
+  const safeQuantity = Math.max(1, Math.floor(getDealChooserNumber(quantity, 1)));
+  const sign = unitPrice < 0 ? "-" : "+";
+  const formattedUnitPrice = formatDealPrice(Math.abs(unitPrice), currency);
 
-const hasMenuItemPrice = (value: CustomerDealMenuItem["basePrice"]) =>
-  value !== null && value !== undefined && value !== "";
+  if (safeQuantity <= 1) {
+    return `${sign}${formattedUnitPrice}`;
+  }
+
+  return `${sign}${formattedUnitPrice} * ${safeQuantity} = ${sign}${formatDealPrice(
+    Math.abs(unitPrice) * safeQuantity,
+    currency
+  )}`;
+};
 
 const getRequirementText = (
   deal: CustomerDeal | null,
@@ -87,6 +102,7 @@ export function DealChooserDrawer({
   open,
   onOpenChange,
   branchId,
+  currency,
 }: DealChooserDrawerProps) {
   const t = useTranslations("home.deals");
   const addDealMutation = useAddDealToCart(branchId);
@@ -125,6 +141,18 @@ export function DealChooserDrawer({
   const selectedItems = useMemo(
     () => detailedItems.filter((item) => selectedMenuItemIds.includes(item.id)),
     [detailedItems, selectedMenuItemIds]
+  );
+  const selectedModifiersTotal = useMemo(() => {
+    return selectedItems.reduce((total, item) => {
+      return total + getDealChooserSelectedModifiersTotal({
+        item,
+        configuration: configurationsByItemId[item.id],
+      });
+    }, 0);
+  }, [configurationsByItemId, selectedItems]);
+  const displayedDealTotal = Math.max(
+    0,
+    getDealChooserNumber(deal?.discountValue, 0) + selectedModifiersTotal
   );
   const categoryNamesById = useMemo(
     () => new Map((deal?.scopeCategories ?? []).map((category) => [category.id, category.name])),
@@ -668,6 +696,7 @@ export function DealChooserDrawer({
                     1,
                     Math.floor(getDealChooserNumber(selectedModifier?.selectedQuantity, 1))
                   );
+                  const modifierPrice = getDealChooserNumber(modifier.priceDelta, 0);
                   const maxReached =
                     maxSelect > 0 &&
                     selectedGroupQuantity >= maxSelect &&
@@ -685,18 +714,29 @@ export function DealChooserDrawer({
                           : "border-gray-100 bg-white"
                       }`}
                     >
-                      <label className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-gray-700">
+                      <label className="flex items-start justify-between gap-3">
+                        <span className="min-w-0 text-sm font-medium leading-5 text-gray-700">
                           {getDealChooserModifierName(modifier)}
                         </span>
-                        <Checkbox
-                          className="size-5"
-                          checked={checked}
-                          disabled={maxReached}
-                          onCheckedChange={(value) =>
-                            toggleModifier(item.id, group, modifier, value === true)
-                          }
-                        />
+                        <span className="flex shrink-0 items-center gap-3">
+                          {modifierPrice !== 0 ? (
+                            <span className="text-xs font-semibold text-primary">
+                              {formatModifierSelectionPrice(
+                                modifierPrice,
+                                selectedModifierQuantity,
+                                currency
+                              )}
+                            </span>
+                          ) : null}
+                          <Checkbox
+                            className="size-5"
+                            checked={checked}
+                            disabled={maxReached}
+                            onCheckedChange={(value) =>
+                              toggleModifier(item.id, group, modifier, value === true)
+                            }
+                          />
+                        </span>
                       </label>
 
                       {canShowQuantitySelector ? (
@@ -765,7 +805,7 @@ export function DealChooserDrawer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-auto rounded-[24px] sm:max-w-[680px]">
+      <DialogContent className="max-h-[92vh] overflow-auto rounded-[24px] sm:max-w-[760px]">
         <DialogHeader>
           <DialogTitle>{deal?.title || t("chooseItems")}</DialogTitle>
           <DialogDescription>
@@ -776,7 +816,7 @@ export function DealChooserDrawer({
         {deal ? (
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-gray-600">
             <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">
-              {formatDealPrice(deal.discountValue)}
+              {formatDealPrice(displayedDealTotal, currency)}
             </span>
             <span className="rounded-full bg-gray-100 px-2.5 py-1">
               {getDealTypeLabel(deal)}
@@ -821,7 +861,6 @@ export function DealChooserDrawer({
 
                 {section.items.map((item) => {
               const checked = selectedMenuItemIds.includes(item.id);
-              const itemPrice = getMenuItemPrice(item);
               const categoryName = item.category?.name?.trim();
               const description = item.description?.trim();
               const configurable = isDealChooserItemConfigurable(item);
@@ -840,8 +879,8 @@ export function DealChooserDrawer({
                   key={item.id}
                   className="overflow-hidden rounded-2xl border border-gray-100 transition-colors hover:border-primary/30 hover:bg-primary/5"
                 >
-                  <div className="flex items-center gap-3 p-3">
-                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-primary/10 text-primary">
+                  <div className="flex items-start gap-4 p-4">
+                    <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-primary/10 text-primary">
                       {item.imageUrl ? (
                         <Image
                           src={item.imageUrl}
@@ -858,15 +897,10 @@ export function DealChooserDrawer({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-gray-900">
+                      <p className="line-clamp-2 text-[15px] font-semibold leading-5 text-gray-900">
                         {item.name}
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-gray-500">
-                        {hasMenuItemPrice(itemPrice) ? (
-                          <span className="text-primary">
-                            {formatDealPrice(itemPrice)}
-                          </span>
-                        ) : null}
                         {categoryName ? <span>{categoryName}</span> : null}
                         {categoryRule ? (
                           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
@@ -880,7 +914,7 @@ export function DealChooserDrawer({
                         ) : null}
                       </div>
                       {description ? (
-                        <p className="mt-1 line-clamp-1 text-xs leading-5 text-gray-500">
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">
                           {description}
                         </p>
                       ) : null}

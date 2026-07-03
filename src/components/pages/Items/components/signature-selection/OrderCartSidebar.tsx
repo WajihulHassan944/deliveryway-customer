@@ -22,7 +22,9 @@ import {
   getCheckoutPriceAdjustmentTotal,
   getItemImage,
   getItemPricing,
+  getScopedItemDiscountDisplays,
   getSelectedVariationName,
+  getTotalBeforeDiscount,
   getSplitPizzaDisplay,
   isDealCartItem,
   type CheckoutType,
@@ -38,6 +40,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
+import { dispatchCartChanged } from "@/lib/cart-events";
 import { cn } from "@/lib/utils";
 
 type OrderCartSidebarProps = {
@@ -46,6 +49,7 @@ type OrderCartSidebarProps = {
   onCartRefresh?: () => void;
   presentation?: "embedded" | "floating";
   checkoutType?: CheckoutType;
+  currency?: string | null;
 };
 
 export function OrderCartSidebar({
@@ -54,6 +58,7 @@ export function OrderCartSidebar({
   onCartRefresh,
   presentation = "embedded",
   checkoutType = "delivery",
+  currency,
 }: OrderCartSidebarProps) {
   const t = useTranslations("checkout");
   const cartT = useTranslations("cart");
@@ -134,19 +139,20 @@ export function OrderCartSidebar({
     [pricingItems]
   );
 
-  const taxes = toNumber(cartQuote?.taxAmount, 0);
   const checkoutPriceAdjustment = getCheckoutPriceAdjustmentTotal(cartItems, checkoutType);
+  const hasCartQuote = Boolean(cartQuote);
   const deliveryAdjustmentFee =
     checkoutType === "delivery" ? checkoutPriceAdjustment : 0;
   const deliveryFee =
     checkoutType === "delivery"
-      ? deliveryAdjustmentFee > 0
-        ? deliveryAdjustmentFee
-        : toNumber(cartQuote?.deliveryFee, 0)
+      ? hasCartQuote
+        ? toNumber(cartQuote?.deliveryFee, 0)
+        : deliveryAdjustmentFee > 0
+          ? deliveryAdjustmentFee
+          : toNumber(cartQuote?.deliveryFee, 0)
       : 0;
-  const pickupFee = checkoutType === "pickup" ? checkoutPriceAdjustment : 0;
+  const pickupFee = checkoutType === "pickup" && !hasCartQuote ? checkoutPriceAdjustment : 0;
   const selectedOrderFee = checkoutType === "pickup" ? pickupFee : deliveryFee;
-  const serviceCharge = Math.max(0, toNumber(cartQuote?.serviceChargeAmount, 0));
   const tipAmount = Math.max(0, toNumber(cartQuote?.tipAmount, 0));
   const quoteSubtotal = cartQuote ? toNumber(cartQuote.subtotal, itemTotal) : itemTotal;
   const appliedPromotion =
@@ -157,11 +163,15 @@ export function OrderCartSidebar({
     appliedPromotion && ("id" in appliedPromotion || "title" in appliedPromotion)
   );
   const promotionDiscountLine = getAppliedPromotionDiscountLine(cartQuote);
+  const scopedItemDiscountDisplays = getScopedItemDiscountDisplays(pricingItems, cartQuote);
   const discount = promotionDiscountLine?.amount ?? Math.max(0, toNumber(cartQuote?.discountAmount, 0));
   const loyaltyDiscount = Math.max(0, toNumber(cartQuote?.loyaltyDiscountAmount, 0));
   const walletAppliedAmount = Math.max(0, toNumber(cartQuote?.walletAppliedAmount, 0));
-  const totalBeforeDiscount =
-    quoteSubtotal + selectedOrderFee + taxes + serviceCharge + tipAmount;
+  const totalBeforeDiscount = getTotalBeforeDiscount({
+    subtotal: quoteSubtotal,
+    orderFee: selectedOrderFee,
+    tipAmount,
+  });
   const finalTotal = Math.max(
     0,
     toNumber(
@@ -211,6 +221,8 @@ export function OrderCartSidebar({
   const deleteItem = async (id: string) => {
     if (!customerId) return;
     const item = cartItems.find((cartItem) => String(cartItem.id) === id);
+    const previousTotalItems = totalItems;
+    const deletedQuantity = Math.max(1, toNumber(item?.quantity, 1));
 
     try {
       setActionId(id);
@@ -227,6 +239,7 @@ export function OrderCartSidebar({
 
       toast.success(cartT("itemRemoved"));
       setCartItems((prev) => prev.filter((cartItem) => String(cartItem.id) !== id));
+      dispatchCartChanged({ itemCount: Math.max(0, previousTotalItems - deletedQuantity) });
       onCartRefresh?.();
       await fetchCart();
     } catch (err) {
@@ -293,6 +306,7 @@ export function OrderCartSidebar({
                 checkoutType
               );
               const includedItems = Array.isArray(item.includedItems) ? item.includedItems : [];
+              const itemDiscountDisplay = scopedItemDiscountDisplays.get(String(item.id || item.menuItemId || ""));
 
               return (
                 <div
@@ -353,6 +367,9 @@ export function OrderCartSidebar({
                                 String(includedItem.menuItem?.name || includedItem.name || "").trim() ||
                                 t("includedItemFallback");
                               const includedQuantity = Math.max(1, toNumber(includedItem.quantity, 1));
+                              const includedModifiers = Array.isArray(includedItem.selectedModifiers)
+                                ? includedItem.selectedModifiers
+                                : [];
                               const includedKey =
                                 includedItem.id ||
                                 includedItem.menuItemId ||
@@ -361,10 +378,45 @@ export function OrderCartSidebar({
                               return (
                                 <div
                                   key={String(includedKey)}
-                                  className="flex items-center justify-between gap-3 text-xs"
+                                  className="space-y-1 text-xs"
                                 >
-                                  <span className="min-w-0 truncate text-gray-700">{includedName}</span>
-                                  <span className="shrink-0 font-medium text-primary">× {includedQuantity}</span>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="min-w-0 truncate text-gray-700">{includedName}</span>
+                                    <span className="shrink-0 font-medium text-primary">× {includedQuantity}</span>
+                                  </div>
+
+                                  {includedModifiers.length > 0 ? (
+                                    <div className="space-y-0.5 pl-2">
+                                      {includedModifiers.map((modifier, modifierIndex) => {
+                                        const modifierKey =
+                                          modifier.id ||
+                                          modifier.modifierId ||
+                                          `${includedKey}-modifier-${modifierIndex}`;
+                                        const modifierQuantity = Math.max(
+                                          1,
+                                          toNumber(modifier.quantity, 1)
+                                        );
+                                        const modifierTotal = toNumber(modifier.total, 0);
+
+                                        return (
+                                          <div
+                                            key={String(modifierKey)}
+                                            className="flex items-center justify-between gap-3 text-[11px] text-gray-500"
+                                          >
+                                            <span className="min-w-0 truncate">
+                                              {modifier.name}
+                                              {modifierQuantity > 1 ? ` × ${modifierQuantity}` : ""}
+                                            </span>
+                                            {modifierTotal > 0 ? (
+                                              <span className="shrink-0 font-medium text-gray-600">
+                                                +{formatCurrency(modifierTotal, currency)}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null}
                                 </div>
                               );
                             })}
@@ -394,7 +446,7 @@ export function OrderCartSidebar({
 
                                 {section.checkoutPrice > 0 ? (
                                   <p className="shrink-0 font-medium text-gray-800">
-                                    {formatCurrency(section.checkoutPrice)}
+                                    {formatCurrency(section.checkoutPrice, currency)}
                                   </p>
                                 ) : null}
                               </div>
@@ -426,7 +478,7 @@ export function OrderCartSidebar({
                                     {addonQty > 1 ? ` × ${addonQty}` : ""}
                                   </span>
                                   <span className="shrink-0 font-medium text-gray-700">
-                                    {addonTotal > 0 ? `+${formatCurrency(addonTotal)}` : t("free")}
+                                    {addonTotal > 0 ? `+${formatCurrency(addonTotal, currency)}` : t("free")}
                                   </span>
                                 </div>
                               );
@@ -442,7 +494,7 @@ export function OrderCartSidebar({
                             {t("deposit")}
                           </span>
                           <span className="font-semibold text-amber-700">
-                            {formatCurrency(depositUnitAmount)}
+                            {formatCurrency(depositUnitAmount, currency)}
                             {quantity > 1 ? ` × ${quantity}` : ""}
                           </span>
                         </div>
@@ -456,24 +508,46 @@ export function OrderCartSidebar({
 
                       <div className="flex items-end justify-between gap-3 pt-1">
                         <div>
-                          <p className="text-sm font-semibold text-primary">
-                            {formatCurrency(lineTotal)}
-                          </p>
+                          {itemDiscountDisplay ? (
+                            <div className="flex flex-wrap items-baseline gap-2">
+                              <span className="text-xs font-medium text-gray-400 line-through decoration-gray-400">
+                                {formatCurrency(lineTotal, currency)}
+                              </span>
+                              <span className="text-sm font-semibold text-primary">
+                                {formatCurrency(itemDiscountDisplay.discountedLineTotal, currency)}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-sm font-semibold text-primary">
+                              {formatCurrency(lineTotal, currency)}
+                            </p>
+                          )}
                           <div className="space-y-0.5">
                             <p className="text-[11px] text-gray-400">
-                              {t("each", { price: formatCurrency(unitPriceWithModifiers) })}
+                              {itemDiscountDisplay ? (
+                                <>
+                                  {t("each", {
+                                    price: formatCurrency(itemDiscountDisplay.discountedUnitPriceWithModifiers, currency),
+                                  })}
+                                  <span className="ml-1 line-through decoration-gray-400">
+                                    {formatCurrency(unitPriceWithModifiers, currency)}
+                                  </span>
+                                </>
+                              ) : (
+                                t("each", { price: formatCurrency(unitPriceWithModifiers, currency) })
+                              )}
                             </p>
                             {selectedAddons.length > 0 ? (
                               <p className="text-[11px] text-gray-400">
                                 {t("priceWithAddons", {
-                                  price: formatCurrency(checkoutUnitPrice),
-                                  addons: formatCurrency(modifiersTotal),
+                                  price: formatCurrency(checkoutUnitPrice, currency),
+                                  addons: formatCurrency(modifiersTotal, currency),
                                 })}
                               </p>
                             ) : null}
                             {itemDepositTotal > 0 ? (
                               <p className="text-[11px] text-gray-400">
-                                {t("includesDeposit", { amount: formatCurrency(itemDepositTotal) })}
+                                {t("includesDeposit", { amount: formatCurrency(itemDepositTotal, currency) })}
                               </p>
                             ) : null}
                           </div>
@@ -515,13 +589,13 @@ export function OrderCartSidebar({
           <div className="space-y-3 border-t border-black/5 pt-5 text-sm text-gray-500">
             <div className="flex items-center justify-between">
               <span>{t("itemTotal")}</span>
-              <span>{formatCurrency(quoteSubtotal)}</span>
+              <span>{formatCurrency(quoteSubtotal, currency)}</span>
             </div>
 
             {depositTotal > 0 ? (
               <div className="flex items-center justify-between text-amber-700">
                 <span>{t("deposit")}</span>
-                <span>{formatCurrency(depositTotal)}</span>
+                <span>{formatCurrency(depositTotal, currency)}</span>
               </div>
             ) : null}
 
@@ -530,38 +604,26 @@ export function OrderCartSidebar({
                 <span>
                   {checkoutType === "pickup" ? t("pickupPrice") : t("deliveryFee")}
                 </span>
-                <span>{formatCurrency(selectedOrderFee)}</span>
-              </div>
-            ) : null}
-
-            <div className="flex items-center justify-between">
-              <span>{t("taxesAndCharges")}</span>
-              <span>{formatCurrency(taxes)}</span>
-            </div>
-
-            {serviceCharge > 0 ? (
-              <div className="flex items-center justify-between">
-                <span>{t("totals.serviceCharge")}</span>
-                <span>{formatCurrency(serviceCharge)}</span>
+                <span>{formatCurrency(selectedOrderFee, currency)}</span>
               </div>
             ) : null}
 
             {tipAmount > 0 ? (
               <div className="flex items-center justify-between">
                 <span>{t("totals.tip")}</span>
-                <span>{formatCurrency(tipAmount)}</span>
+                <span>{formatCurrency(tipAmount, currency)}</span>
               </div>
             ) : null}
 
             <div className="flex items-center justify-between pt-2">
               <span>{t("totalBeforeDiscount")}</span>
-              <span>{formatCurrency(totalBeforeDiscount)}</span>
+              <span>{formatCurrency(totalBeforeDiscount, currency)}</span>
             </div>
 
             {discount > 0 ? (
               <div className="flex items-center justify-between text-green-600">
                 <span>{hasAppliedPromotion ? t("appliedDealDiscount") : t("discount")}</span>
-                <span>- {formatCurrency(discount)}</span>
+                <span>- {formatCurrency(discount, currency)}</span>
               </div>
             ) : null}
 
@@ -574,20 +636,20 @@ export function OrderCartSidebar({
                       })
                     : t("loyaltyDiscount")}
                 </span>
-                <span>- {formatCurrency(loyaltyDiscount)}</span>
+                <span>- {formatCurrency(loyaltyDiscount, currency)}</span>
               </div>
             ) : null}
 
             {walletAppliedAmount > 0 ? (
               <div className="flex items-center justify-between text-green-600">
                 <span>{t("walletApplied")}</span>
-                <span>- {formatCurrency(walletAppliedAmount)}</span>
+                <span>- {formatCurrency(walletAppliedAmount, currency)}</span>
               </div>
             ) : null}
 
             <div className="flex items-center justify-between pt-2 text-[22px] font-semibold tracking-[-0.02em] text-gray-900">
               <span>{walletAppliedAmount > 0 ? t("payableTotal") : t("total")}</span>
-              <span>{formatCurrency(finalTotal)}</span>
+              <span>{formatCurrency(finalTotal, currency)}</span>
             </div>
           </div>
 

@@ -2,11 +2,14 @@ import { readAuthSession } from "./auth";
 import { getArrayData } from "./response";
 import type { AuthUser } from "../types/auth";
 import type { HomeBranch, HomeCategory, LandingPopup, PromotionCampaign } from "../types/home";
+import type { HappyHourInfo } from "@/components/pages/Items/types";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const getString = (value: unknown) => (typeof value === "string" ? value : undefined);
+
+const getBoolean = (value: unknown) => (typeof value === "boolean" ? value : undefined);
 
 const getNumberOrString = (value: unknown) => {
   if (typeof value === "number" || typeof value === "string") {
@@ -35,8 +38,10 @@ export const resolveHomeRestaurantId = (user?: AuthUser | null, authRestaurantId
 
   return (
     storedUser?.restaurantId ??
+    storedUser?.branch?.restaurantId ??
     authRestaurantId ??
     user?.restaurantId ??
+    user?.branch?.restaurantId ??
     user?.tenantId ??
     ""
   );
@@ -45,7 +50,7 @@ export const resolveHomeRestaurantId = (user?: AuthUser | null, authRestaurantId
 export const resolveHomeBranchId = (user?: AuthUser | null) => {
   const storedUser = getStoredHomeAuthUser();
 
-  return storedUser?.branchId ?? user?.branchId ?? "";
+  return storedUser?.branchId ?? storedUser?.branch?.id ?? user?.branchId ?? user?.branch?.id ?? "";
 };
 
 export const normalizeHomeCategories = (response: unknown): HomeCategory[] =>
@@ -54,6 +59,7 @@ export const normalizeHomeCategories = (response: unknown): HomeCategory[] =>
       id: getString(item.id) ?? "",
       name: getString(item.name) ?? "",
       imageUrl: getString(item.imageUrl) ?? null,
+      happyHour: isRecord(item.happyHour) ? item.happyHour as HappyHourInfo : null,
     }))
     .filter((item) => item.id);
 
@@ -63,11 +69,16 @@ export const normalizePromotions = (response: unknown): PromotionCampaign[] =>
       id: getString(promotion.id) ?? "",
       title: getString(promotion.title),
       description: getString(promotion.description),
+      code: getString(promotion.code),
+      couponCode: getString(promotion.couponCode),
+      imageUrl: getString(promotion.imageUrl) ?? null,
+      thumbnailUrl: getString(promotion.thumbnailUrl) ?? null,
       applyMode: getString(promotion.applyMode),
       discountType: getString(promotion.discountType),
       discountValue: getNumberOrString(promotion.discountValue),
       maxDiscountAmount: getNumberOrString(promotion.maxDiscountAmount),
       minOrderAmount: getNumberOrString(promotion.minOrderAmount),
+      maxUsesPerCustomer: getNumberOrString(promotion.maxUsesPerCustomer),
       startsAt: getString(promotion.startsAt),
       expiresAt: getString(promotion.expiresAt),
       branch: isRecord(promotion.branch)
@@ -93,3 +104,22 @@ export const normalizePromotions = (response: unknown): PromotionCampaign[] =>
 export const isLandingPopup = (value: unknown): value is LandingPopup => isRecord(value);
 
 export const isHomeBranch = (value: unknown): value is HomeBranch => isRecord(value);
+
+export const resolveTableReservationsEnabled = (
+  homeBranch?: HomeBranch | null,
+  sessionBranch?: AuthUser["branch"] | null
+) => {
+  const homeFlag =
+    getBoolean(homeBranch?.tableReservationsEnabled) ??
+    getBoolean(homeBranch?.settings?.tableReservationsEnabled);
+
+  if (homeFlag !== undefined) {
+    return homeFlag;
+  }
+
+  return (
+    getBoolean(sessionBranch?.tableReservationsEnabled) ??
+    getBoolean(sessionBranch?.settings?.tableReservationsEnabled) ??
+    false
+  );
+};

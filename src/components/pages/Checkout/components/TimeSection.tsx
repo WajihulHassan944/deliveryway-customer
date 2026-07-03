@@ -8,8 +8,11 @@ import {
   getDateFromValue,
   getDateValue,
   getPickupScheduleForDate,
+  isImmediateScheduleAvailable,
   isPastDateValue,
 } from "@/components/pages/Checkout/utils/pickup-schedule";
+import { ScheduleRail } from "@/components/pages/Checkout/components/ScheduleRail";
+import { Time24Picker } from "@/components/ui/time-24-picker";
 import type { BranchRecord } from "@/types/branch-selector";
 import { useTranslations } from "next-intl";
 
@@ -18,8 +21,17 @@ interface Props {
   setPickupDate: (value: Date | null) => void;
   pickupTime: string | null;
   setPickupTime: (value: string | null) => void;
+  pickupScheduleMode: "now" | "schedule";
+  setPickupScheduleMode: (value: "now" | "schedule") => void;
   selectedBranch?: BranchRecord | null;
 }
+
+const activeGradientClass =
+  "border-primary bg-white text-gray-950 shadow-[0_12px_34px_rgba(17,24,39,0.10)] ring-2 ring-primary/10";
+const interactiveTileClass =
+  "border-gray-100 bg-white text-gray-900 shadow-[0_12px_34px_rgba(17,24,39,0.08)] hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_42px_rgba(17,24,39,0.12)] hover:text-primary";
+const disabledTileClass =
+  "cursor-not-allowed border-gray-100 bg-[#F7F3EF]/70 text-gray-400 shadow-none";
 
 const buildUpcomingDates = () => {
   const today = new Date();
@@ -40,11 +52,17 @@ export function SelectPickupTimeSection({
   setPickupDate,
   pickupTime,
   setPickupTime,
+  pickupScheduleMode,
+  setPickupScheduleMode,
   selectedBranch,
 }: Props) {
   const t = useTranslations("checkout");
   const dateValue = pickupDate ? getDateValue(pickupDate) : "";
   const dates = useMemo(() => buildUpcomingDates(), []);
+  const immediateAvailable = useMemo(
+    () => isImmediateScheduleAvailable({ branch: selectedBranch, scheduleType: "pickup" }),
+    [selectedBranch]
+  );
   const timeSlots = useMemo(
     () => buildPickupTimeSlots({ branch: selectedBranch, dateValue }),
     [dateValue, selectedBranch]
@@ -54,7 +72,6 @@ export function SelectPickupTimeSection({
     [dateValue, selectedBranch]
   );
   const hasOpeningHours = scheduleState.hasOpeningHours;
-
   const openingHoursLabel = useMemo(() => {
     const schedule = scheduleState.schedule;
 
@@ -75,11 +92,59 @@ export function SelectPickupTimeSection({
     }
   }, [hasOpeningHours, pickupTime, selectedTimeAvailable, setPickupTime]);
 
+  useEffect(() => {
+    if (!immediateAvailable && pickupScheduleMode === "now") {
+      setPickupScheduleMode("schedule");
+    }
+  }, [immediateAvailable, pickupScheduleMode, setPickupScheduleMode]);
+
   return (
     <section className="max-w-[520px] space-y-[22px]">
       <h2 className="text-[24px] font-semibold text-gray-900">
-        {t("selectPickupTime")}
+        {t("pickupTiming")}
       </h2>
+      <div className="rounded-xl bg-white px-5 py-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={!immediateAvailable}
+            onClick={() => {
+              setPickupScheduleMode("now");
+              setPickupDate(null);
+              setPickupTime(null);
+            }}
+            className={`rounded-2xl border px-4 py-4 text-left transition-all duration-200 ${
+              pickupScheduleMode === "now"
+                ? activeGradientClass
+                : !immediateAvailable
+                  ? disabledTileClass
+                  : interactiveTileClass
+            }`}
+          >
+            <span className="block text-base font-semibold">{t("orderNow")}</span>
+            <span className="mt-1 block text-xs leading-5 text-gray-500">
+              {immediateAvailable ? t("pickupNowDescription") : t("pickupNowUnavailable")}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPickupScheduleMode("schedule")}
+            className={`rounded-2xl border px-4 py-4 text-left transition-all duration-200 ${
+              pickupScheduleMode === "schedule"
+                ? activeGradientClass
+                : interactiveTileClass
+            }`}
+          >
+            <span className="block text-base font-semibold">{t("scheduleOrder")}</span>
+            <span className="mt-1 block text-xs leading-5 text-gray-500">
+              {t("schedulePickupDescription")}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {pickupScheduleMode === "schedule" ? (
+        <>
 
       {/* DATE */}
       <div className="space-y-[14px]">
@@ -88,7 +153,7 @@ export function SelectPickupTimeSection({
         </h3>
 
         <div className="rounded-xl bg-white px-5 py-4 shadow-sm">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <ScheduleRail ariaLabel={t("chooseDate")}>
             {dates.map((date) => {
               const nextDateValue = getDateValue(date);
               const dateScheduleState = getPickupScheduleForDate({
@@ -115,12 +180,12 @@ export function SelectPickupTimeSection({
                     setPickupDate(getDateFromValue(nextDateValue));
                     setPickupTime(null);
                   }}
-                  className={`rounded-xl border px-3 py-3 text-left transition-all ${
+                  className={`min-w-[92px] snap-start rounded-xl border px-3 py-3 text-left transition-all duration-200 ${
                     isSelected
-                      ? "border-orange-500 bg-orange-500 text-white shadow-md"
+                      ? activeGradientClass
                       : disabled
-                        ? "cursor-not-allowed border-gray-100 bg-gray-100 text-gray-400"
-                        : "border-gray-200 bg-white text-gray-700 hover:border-orange-400 hover:text-orange-500"
+                        ? disabledTileClass
+                        : interactiveTileClass
                   }`}
                 >
                   <span className="block text-xs font-semibold uppercase">
@@ -135,7 +200,7 @@ export function SelectPickupTimeSection({
                 </button>
               );
             })}
-          </div>
+          </ScheduleRail>
 
           {dateValue && openingHoursLabel ? (
             <p className="mt-3 flex items-center gap-2 text-xs text-gray-500">
@@ -158,40 +223,41 @@ export function SelectPickupTimeSection({
         </h3>
 
         {hasOpeningHours ? (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+          <ScheduleRail ariaLabel={t("choosePickupTime")}>
             {timeSlots.length > 0 ? (
               timeSlots.map((slot) => (
                 <button
                   key={slot.value}
                   type="button"
                   onClick={() => setPickupTime(slot.value)}
-                  className={`h-[48px] rounded-[10px] border-2 text-sm font-medium transition-all ${
+                  className={`h-[48px] min-w-[96px] snap-start rounded-[14px] border text-sm font-semibold transition-all duration-200 ${
                     pickupTime === slot.value
-                      ? "border-orange-500 bg-orange-500 text-white shadow-md"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-orange-400 hover:text-orange-500"
+                      ? activeGradientClass
+                      : interactiveTileClass
                   }`}
                 >
                   {slot.label}
                 </button>
               ))
             ) : (
-              <p className="col-span-full rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-500">
+              <p className="min-w-full rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-500">
                 {t("noPickupSlots")}
               </p>
             )}
-          </div>
+          </ScheduleRail>
         ) : (
           <label className="block max-w-[220px]">
             <span className="sr-only">{t("pickupTime")}</span>
-            <input
-              type="time"
+            <Time24Picker
               value={pickupTime || ""}
-              onChange={(event) => setPickupTime(event.target.value || null)}
-              className="h-[48px] w-full rounded-[10px] border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+              onChange={(value) => setPickupTime(value || null)}
+              className="h-[48px] w-full rounded-[10px] border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-all focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10"
             />
           </label>
         )}
       </div>
+        </>
+      ) : null}
     </section>
   );
 }

@@ -24,8 +24,9 @@ export const queryKeys = {
     request: (endpoint: string) => ["items", "request", endpoint] as const,
     dealScopedDetails: (
       itemIds: string[],
-      itemSearchTermsById?: Record<string, string[]>
-    ) => ["items", "deal-scoped-details", itemIds, itemSearchTermsById ?? {}] as const,
+      itemSearchTermsById?: Record<string, string[]>,
+      branchId?: string | number | null
+    ) => ["items", "deal-scoped-details", itemIds, itemSearchTermsById ?? {}, branchId ?? ""] as const,
   },
   cart: {
     current: ["cart", "current"] as const,
@@ -39,9 +40,20 @@ export const queryKeys = {
     detail: (restaurantId?: string | null, branchId?: string | null) => ["customer-home", restaurantId ?? "", branchId ?? ""] as const,
     categories: (restaurantId?: string | null) => ["customer-home", "categories", restaurantId ?? ""] as const,
     promotions: (restaurantId?: string | null, branchId?: string | null) => ["customer-home", "promotions", restaurantId ?? "", branchId ?? ""] as const,
+    promotionalItems: (params: Record<string, unknown>) => ["customer-home", "promotional-items", params] as const,
+    branchStats: (restaurantId?: string | null, branchId?: string | null) => ["customer-home", "branch-stats", restaurantId ?? "", branchId ?? ""] as const,
+    about: (restaurantId?: string | null) => ["customer-home", "about", restaurantId ?? ""] as const,
+    helpSupport: (restaurantId?: string | null, branchId?: string | null) => ["customer-home", "help-support", restaurantId ?? "", branchId ?? ""] as const,
+    faqs: (restaurantId?: string | null, branchId?: string | null) => ["customer-home", "faqs", restaurantId ?? "", branchId ?? ""] as const,
   },
   customerDeals: {
     list: (params: Record<string, unknown>) => ["customer-deals", "list", params] as const,
+  },
+  customerCoupons: {
+    list: (params: Record<string, unknown>) => ["customer-coupons", "list", params] as const,
+  },
+  customerReviews: {
+    list: (params: Record<string, unknown>) => ["customer-reviews", "list", params] as const,
   },
   orders: {
     all: ["orders"] as const,

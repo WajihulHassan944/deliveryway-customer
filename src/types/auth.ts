@@ -1,4 +1,4 @@
-import type { BranchAddress, BranchOrderType } from "@/types/branches";
+import type { BranchAddress, BranchOrderType, BranchSettings } from "@/types/branches";
 
 export type AuthBranch = {
   id: string;
@@ -6,6 +6,8 @@ export type AuthBranch = {
   isActive?: boolean;
   restaurantId?: string | null;
   address?: BranchAddress;
+  settings?: BranchSettings | null;
+  tableReservationsEnabled?: boolean;
   distanceKm?: number | null;
   selectedOrderType?: BranchOrderType;
 };
@@ -39,6 +41,11 @@ export type AuthSession = {
 export type LoginCustomerPayload = {
   email: string;
   password: string;
+  restaurantId: string;
+};
+
+export type GoogleLoginCustomerPayload = {
+  idToken: string;
   restaurantId: string;
 };
 

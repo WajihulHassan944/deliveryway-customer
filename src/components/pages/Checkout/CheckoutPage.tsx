@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Tabs from "@/components/pages/Checkout/components/Tabs";
 import { DeliverySection } from "@/components/pages/Checkout/components/DeliverySection";
 import { PickupSection } from "@/components/pages/Checkout/components/PickupSection";
@@ -8,10 +8,11 @@ import { CartSummarySection } from "@/components/pages/Checkout/components/CartS
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCheckout } from "@/hooks/useCheckout";
 import { useCart } from "@/hooks/useCart";
+import { useHome } from "@/hooks/useHome";
 import { useLoyalty } from "@/hooks/useLoyalty";
-import useReservations from "@/hooks/useReservations";
 import { toast } from "sonner";
 import { useAuthContext } from "@/hooks/useAuth";
+import { X } from "lucide-react";
 import {
   Elements,
   PaymentElement,
@@ -19,17 +20,33 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
-import { useAuth } from "@/hooks/useAuth";
 import type { ApiRecord, BackendErrorState, CartItem } from "@/components/pages/Checkout/utils/checkout-normalizers";
 import { asRecord, getBackendErrorCode, getBackendErrorMessage, getBackendErrorMeta, hasBackendError, normalizeCartItem, normalizeCartQuote, normalizeCartResponse, recalculateCartItemQuantity, toNumber } from "@/components/pages/Checkout/utils/checkout-normalizers";
 import type { BranchRecord } from "@/types/branch-selector";
 import { useTranslations } from "next-intl";
 import { normalizeCheckoutTipAmount, type CheckoutAddressValues } from "@/validations/checkout";
-import { getStoredRestaurantMenuId } from "@/lib/timed-menu";
+import { branchSupportsDelivery, branchSupportsPickup, getSelectedOrderType, normalizeBranch } from "@/lib/branch-selector";
+import {
+  getStoredCheckoutTypePreference,
+  setStoredCheckoutTypePreference,
+  type CheckoutTypePreference,
+} from "@/lib/checkout-type-preference";
+import { dispatchCartChanged } from "@/lib/cart-events";
+import { resolveCustomerCurrency } from "@/lib/money";
+import {
+  getBranchScheduleTimeZone,
+  getScheduledDateTime,
+  getDateValue,
+  getScheduleOrderTimeIso,
+  isImmediateScheduleAvailable,
+  isPastDateValue,
+  isScheduleTimeAvailable,
+} from "@/components/pages/Checkout/utils/pickup-schedule";
 import type { LoyaltySummary } from "@/services/loyalty";
 
 const emptyGuestDeliveryAddress: CheckoutAddressValues = {
   street: "",
+  houseNumber: "",
   postalCode: "",
   city: "",
   state: "",
@@ -46,15 +63,147 @@ type GuestPrivacyPolicy = {
   policyLink: string;
 };
 
+const getCartItemCount = (items: CartItem[]) =>
+  items.reduce((total, item) => total + Math.max(1, toNumber(item.quantity, 1)), 0);
+
 const getCheckoutOrderType = (checkoutType: string) =>
   checkoutType === "pickup" ? "TAKEAWAY" : "DELIVERY";
 
-const getCartRestaurantMenuId = (items: CartItem[]) => {
-  const cartMenuId = items
-    .map((item) => item.restaurantMenuId)
-    .find((restaurantMenuId) => restaurantMenuId !== undefined && restaurantMenuId !== null && String(restaurantMenuId).trim());
+const normalizePickupTimeValue = (value: string) => {
+  const [time, modifier] = value.includes(" ")
+    ? value.split(" ")
+    : [value, ""];
+  let [hours, minutes] = time.split(":").map(Number);
 
-  return cartMenuId ? String(cartMenuId) : getStoredRestaurantMenuId();
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+
+  if (modifier === "PM" && hours !== 12) {
+    hours += 12;
+  }
+
+  if (modifier === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return {
+    hours,
+    minutes,
+    value: `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`,
+  };
+};
+
+const isMeaningfulCartText = (value: unknown) =>
+  typeof value === "string" && value.trim() !== "" && value.trim() !== "Untitled Item";
+
+const hasVariationDetails = (value: unknown) => {
+  const variation = asRecord(value);
+
+  return Boolean(
+    isMeaningfulCartText(variation.displayText) ||
+      isMeaningfulCartText(variation.name) ||
+      variation.id
+  );
+};
+
+const hasModifierDetails = (value: unknown) => {
+  const modifier = asRecord(value);
+
+  return Boolean(
+    isMeaningfulCartText(modifier.name) &&
+      String(modifier.name).trim() !== "Add-on"
+  );
+};
+
+const hasDisplayableModifierDetails = (items: CartItem["selectedModifiers"]) =>
+  items.some(hasModifierDetails);
+
+const getMergedCartMenuItem = (
+  currentItem: CartItem,
+  incomingItem: CartItem
+) => {
+  const incomingMenuItem = asRecord(incomingItem.menuItem);
+  const currentMenuItem = asRecord(currentItem.menuItem);
+  const mergedMenuItem = {
+    ...currentMenuItem,
+    ...incomingMenuItem,
+  };
+
+  return {
+    ...mergedMenuItem,
+    name: isMeaningfulCartText(incomingMenuItem.name)
+      ? incomingMenuItem.name
+      : currentMenuItem.name,
+    slug: isMeaningfulCartText(incomingMenuItem.slug)
+      ? incomingMenuItem.slug
+      : currentMenuItem.slug,
+    description: isMeaningfulCartText(incomingMenuItem.description)
+      ? incomingMenuItem.description
+      : currentMenuItem.description,
+    imageUrl: isMeaningfulCartText(incomingMenuItem.imageUrl)
+      ? incomingMenuItem.imageUrl
+      : currentMenuItem.imageUrl,
+    selectedVariation: hasVariationDetails(incomingMenuItem.selectedVariation)
+      ? incomingMenuItem.selectedVariation
+      : currentMenuItem.selectedVariation,
+  };
+};
+
+const mergeCartItemsWithExistingDetails = (
+  currentItems: CartItem[],
+  incomingItems: CartItem[]
+) => {
+  if (!currentItems.length || !incomingItems.length) return incomingItems;
+
+  const currentById = new Map(
+    currentItems
+      .filter((item) => item.id !== undefined && item.id !== null)
+      .map((item) => [String(item.id), item])
+  );
+
+  return incomingItems.map((incomingItem) => {
+    const currentItem = incomingItem.id !== undefined && incomingItem.id !== null
+      ? currentById.get(String(incomingItem.id))
+      : undefined;
+
+    if (!currentItem) return incomingItem;
+
+    const hasIncomingModifiers =
+      incomingItem.selectedModifiers.length > 0 &&
+      (
+        !currentItem.selectedModifiers.length ||
+        hasDisplayableModifierDetails(incomingItem.selectedModifiers)
+      );
+    const hasIncomingSections = incomingItem.selectedSections.length > 0;
+    const hasIncomingIncludedItems = Boolean(incomingItem.includedItems?.length);
+    const mergedMenuItem = getMergedCartMenuItem(currentItem, incomingItem);
+
+    return {
+      ...currentItem,
+      ...incomingItem,
+      name: isMeaningfulCartText(incomingItem.name) ? incomingItem.name : currentItem.name,
+      desc: isMeaningfulCartText(incomingItem.desc) ? incomingItem.desc : currentItem.desc,
+      img: isMeaningfulCartText(incomingItem.img) ? incomingItem.img : currentItem.img,
+      slug: isMeaningfulCartText(incomingItem.slug) ? incomingItem.slug : currentItem.slug,
+      selectedVariationName: isMeaningfulCartText(incomingItem.selectedVariationName)
+        ? incomingItem.selectedVariationName
+        : currentItem.selectedVariationName,
+      selectedVariation: hasVariationDetails(incomingItem.selectedVariation)
+        ? incomingItem.selectedVariation
+        : currentItem.selectedVariation,
+      variationId: incomingItem.variationId ?? currentItem.variationId,
+      selectedModifiers: hasIncomingModifiers
+        ? incomingItem.selectedModifiers
+        : currentItem.selectedModifiers,
+      selectedSections: hasIncomingSections
+        ? incomingItem.selectedSections
+        : currentItem.selectedSections,
+      sections: hasIncomingSections ? incomingItem.sections : currentItem.sections,
+      includedItems: hasIncomingIncludedItems ? incomingItem.includedItems : currentItem.includedItems,
+      menuItem: Object.keys(mergedMenuItem).length ? mergedMenuItem : incomingItem.menuItem,
+    };
+  });
 };
 
 const isGuestUser = (user: ReturnType<typeof useAuthContext>["user"]) =>
@@ -82,6 +231,7 @@ const normalizeGuestPrivacyPolicy = (value: unknown, restaurantId: string): Gues
 
 const trimAddress = (address: CheckoutAddressValues) => ({
   street: address.street.trim(),
+  houseNumber: address.houseNumber.trim(),
   area: address.area.trim(),
   postalCode: address.postalCode.trim(),
   city: address.city.trim(),
@@ -96,7 +246,8 @@ const getGuestDeliveryAddressPayload = (address: CheckoutAddressValues) => {
 
   return {
     street: trimmed.street,
-    area: trimmed.area,
+    houseNumber: trimmed.houseNumber,
+    area: trimmed.houseNumber || trimmed.area,
     postalCode: trimmed.postalCode,
     city: trimmed.city,
     state: trimmed.state,
@@ -127,12 +278,45 @@ const hasGuestContact = (customer: { name: string; phone: string; email: string 
   return Boolean(customer.email.trim() && customer.phone.trim());
 };
 
+const getCartPreparationMinutes = (items: CartItem[]) =>
+  items.reduce((total, item) => total + Math.max(0, Math.floor(toNumber(item.prepTimeMinutes, 0))), 0);
+
+const getCheckoutQuoteSignature = ({
+  activeTab,
+  customerId,
+  guestDeliveryAddress,
+  isGuest,
+  selectedAddress,
+}: {
+  activeTab: string;
+  customerId: string;
+  guestDeliveryAddress: CheckoutAddressValues;
+  isGuest: boolean;
+  selectedAddress: string | null;
+}) => {
+  const address = isGuest
+    ? trimAddress(guestDeliveryAddress)
+    : { selectedAddress: selectedAddress ?? "" };
+
+  return JSON.stringify({
+    activeTab,
+    customerId,
+    isGuest,
+    address,
+  });
+};
+
 function CheckoutPageContent() {
   const t = useTranslations("checkout");
   const searchParams = useSearchParams();
   const type = searchParams.get("type");
   const { user, token } = useAuthContext();
-  const preferredCheckoutType = user?.selectedOrderType === "TAKEAWAY" ? "pickup" : "delivery";
+  const [storedCheckoutType, setStoredCheckoutType] =
+    useState<CheckoutTypePreference | null>(null);
+  const [hasLoadedCheckoutTypePreference, setHasLoadedCheckoutTypePreference] =
+    useState(false);
+  const userCheckoutType = getSelectedOrderType(user) === "TAKEAWAY" ? "pickup" : "delivery";
+  const preferredCheckoutType = storedCheckoutType ?? userCheckoutType;
   const activeTab = type === "pickup" || type === "delivery" ? type : preferredCheckoutType;
   const isGuest = isGuestUser(user);
   const restaurantId = getCheckoutRestaurantId(user);
@@ -143,10 +327,52 @@ function CheckoutPageContent() {
   const [removingCoupon, setRemovingCoupon] = useState(false);
   const [applyingTip, setApplyingTip] = useState(false);
 
-  const { get, patch, del, post, checkoutCustomerCart } = useCheckout(token);
+  const {
+    get,
+    patch,
+    del,
+    post,
+    applyCoupon: applyCheckoutCoupon,
+    checkoutCustomerCart,
+    removeCoupon: removeCheckoutCoupon,
+  } = useCheckout(token);
   const { updateCustomerCart, updateCustomerCartOrderType, quoteCustomerCart } = useCart(token);
   const { fetchLoyalty } = useLoyalty(token);
-  const { fetchReservationBranch } = useReservations(token);
+  const checkoutBranchId = user?.branchId || user?.branch?.id || null;
+  const homeQuery = useHome(
+    restaurantId,
+    checkoutBranchId,
+    Boolean(restaurantId && checkoutBranchId)
+  );
+  const homeBranch = useMemo(
+    () => normalizeBranch(homeQuery.data?.data.branch),
+    [homeQuery.data?.data.branch]
+  );
+  const homeBranchWithLandingPopup = useMemo(() => {
+    const landingPopup = homeQuery.data?.data.landingPopup;
+
+    if (!homeBranch || landingPopup?.type !== "TEMPORARY_CLOSURE" || !landingPopup.temporaryClosure) {
+      return homeBranch;
+    }
+
+    return {
+      ...homeBranch,
+      landingPopup,
+      availability: {
+        ...homeBranch.availability,
+        isTemporarilyClosed: landingPopup.temporaryClosure.isClosed,
+        temporaryClosure: landingPopup.temporaryClosure,
+      },
+      settings: {
+        ...homeBranch.settings,
+        temporaryClosure: landingPopup.temporaryClosure,
+      },
+    };
+  }, [homeBranch, homeQuery.data?.data.landingPopup]);
+  const currency = resolveCustomerCurrency({
+    configCurrency: homeQuery.data?.data.config?.currency,
+    restaurant: homeQuery.data?.data.restaurant,
+  });
 
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartQuote, setCartQuote] = useState<ApiRecord | null>(null);
@@ -158,6 +384,12 @@ function CheckoutPageContent() {
   const [loyalty, setLoyalty] = useState<LoyaltySummary | null>(null);
   const [loyaltyPoints, setLoyaltyPoints] = useState("");
   const [loadingLoyalty, setLoadingLoyalty] = useState(false);
+  const loadedCartCustomerIdRef = useRef<string | null>(null);
+  const lastQuoteSignatureRef = useRef("");
+  const totalPreparationMinutes = useMemo(
+    () => getCartPreparationMinutes(cartItems),
+    [cartItems]
+  );
 
   const router = useRouter();
   const customerId = user?.id;
@@ -176,6 +408,18 @@ function CheckoutPageContent() {
     toast.error(message);
   };
 
+  useEffect(() => {
+    setStoredCheckoutType(getStoredCheckoutTypePreference());
+    setHasLoadedCheckoutTypePreference(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedCheckoutTypePreference) return;
+
+    setStoredCheckoutTypePreference(activeTab);
+    setStoredCheckoutType(activeTab);
+  }, [activeTab, hasLoadedCheckoutTypePreference]);
+
   const clearBackendError = () => {
     setBackendError(null);
   };
@@ -184,7 +428,10 @@ function CheckoutPageContent() {
     const { items, quote } = normalizeCartResponse(res);
 
     if (items.length) {
-      setCartItems(items.map((item) => normalizeCartItem(item)));
+      const nextItems = items.map((item) => normalizeCartItem(item));
+      setCartItems((currentItems) =>
+        mergeCartItemsWithExistingDetails(currentItems, nextItems)
+      );
     }
 
     if (!quote) {
@@ -228,6 +475,28 @@ function CheckoutPageContent() {
     if (!stripePayment.publishableKey) return null;
     return loadStripe(stripePayment.publishableKey);
   }, [stripePayment.publishableKey]);
+
+  const resetStripePayment = () => {
+    setStripePayment({
+      open: false,
+      clientSecret: "",
+      publishableKey: "",
+      paymentId: "",
+      orderId: "",
+    });
+  };
+
+  const handleCloseStripePayment = async () => {
+    const pendingOrderId = stripePayment.orderId;
+
+    resetStripePayment();
+
+    if (pendingOrderId) {
+      toast.success(t("toast.orderPlaced"));
+      await clearCart();
+      router.push(`/order?orderId=${pendingOrderId}`);
+    }
+  };
 
   const fetchCart = async () => {
     if (!customerId) return;
@@ -276,8 +545,12 @@ function CheckoutPageContent() {
 
   useEffect(() => {
     if (customerId) {
+      if (loadedCartCustomerIdRef.current === customerId) return;
+      loadedCartCustomerIdRef.current = customerId;
       fetchCart();
     } else {
+      loadedCartCustomerIdRef.current = null;
+      lastQuoteSignatureRef.current = "";
       setCartItems([]);
       setCartQuote(null);
       setAppliedTipAmount(0);
@@ -340,10 +613,14 @@ function CheckoutPageContent() {
   const [placingOrder, setPlacingOrder] = useState(false);
   const [pickupDate, setPickupDate] = useState<Date | null>(null);
   const [pickupTime, setPickupTime] = useState<string | null>(null);
-  const [pickupBranch, setPickupBranch] = useState<BranchRecord | null>(null);
+  const [checkoutBranch, setCheckoutBranch] = useState<BranchRecord | null>(null);
   const [scheduledDeliveryValue, setScheduledDeliveryValue] = useState("");
+  const [deliveryScheduleMode, setDeliveryScheduleMode] = useState<"now" | "schedule">("now");
+  const [pickupScheduleMode, setPickupScheduleMode] = useState<"now" | "schedule">("now");
   const checkoutPaymentMethod =
     activeTab === "delivery" && paymentMethod === "COD" ? "STRIPE" : paymentMethod;
+  const deliveryAllowed = !checkoutBranch?.settings?.allowedOrderTypes?.length || branchSupportsDelivery(checkoutBranch);
+  const pickupAllowed = !checkoutBranch?.settings?.allowedOrderTypes?.length || branchSupportsPickup(checkoutBranch);
 
   useEffect(() => {
     if (!user) return;
@@ -405,9 +682,21 @@ function CheckoutPageContent() {
   }, [get, isGuest, restaurantId]);
 
   useEffect(() => {
-    if (!customerId) return;
+    if (!customerId || loadingCart) return;
+
+    const quoteSignature = getCheckoutQuoteSignature({
+      activeTab,
+      customerId,
+      guestDeliveryAddress,
+      isGuest,
+      selectedAddress,
+    });
+
+    if (lastQuoteSignatureRef.current === quoteSignature) return;
 
     const quoteTimer = window.setTimeout(async () => {
+      lastQuoteSignatureRef.current = quoteSignature;
+
       const orderType = getCheckoutOrderType(activeTab);
       const orderTypeRes = await updateCustomerCartOrderType({
         customerId,
@@ -415,6 +704,7 @@ function CheckoutPageContent() {
       });
 
       if (hasBackendError(orderTypeRes)) {
+        lastQuoteSignatureRef.current = "";
         reportBackendError(
           t("toast.quoteFailed"),
           orderTypeRes,
@@ -423,7 +713,7 @@ function CheckoutPageContent() {
         return;
       }
 
-      await fetchCart();
+      syncCartFromResponse(orderTypeRes);
 
       const payload: Record<string, unknown> = {};
 
@@ -441,46 +731,54 @@ function CheckoutPageContent() {
       });
 
       if (!hasBackendError(res)) {
-        const { quote } = normalizeCartResponse(res);
-        const quoteData = quote ?? normalizeCartQuote(asRecord(res?.data));
+        if (!syncCartFromResponse(res)) {
+          const quoteData = normalizeCartQuote(asRecord(res?.data));
 
-        if (quoteData) {
-          setCartQuote(quoteData);
+          if (quoteData) {
+            setCartQuote(quoteData);
+          }
         }
+      } else {
+        lastQuoteSignatureRef.current = "";
       }
     }, 450);
 
     return () => window.clearTimeout(quoteTimer);
-  }, [activeTab, customerId, guestDeliveryAddress, isGuest, quoteCustomerCart, selectedAddress, updateCustomerCartOrderType]);
+  }, [activeTab, customerId, guestDeliveryAddress, isGuest, loadingCart, quoteCustomerCart, selectedAddress, updateCustomerCartOrderType]);
 
   useEffect(() => {
-    const loadPickupBranch = async () => {
-      if (activeTab !== "pickup") return;
+    if (!checkoutBranchId) {
+      setCheckoutBranch(null);
+      return;
+    }
 
-      const branchId = user?.branchId || user?.branch?.id;
+    const fallbackBranch = normalizeBranch(user?.branch);
 
-      if (!branchId) {
-        setPickupBranch(null);
-        return;
-      }
+    setCheckoutBranch(homeBranchWithLandingPopup ?? fallbackBranch);
+  }, [checkoutBranchId, homeBranchWithLandingPopup, user?.branch]);
 
-      try {
-        const { branch } = await fetchReservationBranch({ branchId: String(branchId) });
+  useEffect(() => {
+    if (!checkoutBranch?.settings?.allowedOrderTypes?.length) return;
 
-        setPickupBranch(branch);
-      } catch (error) {
-        setPickupBranch((user?.branch || null) as BranchRecord | null);
-      }
-    };
+    if (activeTab === "delivery" && !deliveryAllowed && pickupAllowed) {
+      router.replace("/checkout?type=pickup", { scroll: false });
+    }
 
-    void loadPickupBranch();
-  }, [activeTab, fetchReservationBranch, user?.branch, user?.branchId]);
+    if (activeTab === "pickup" && !pickupAllowed && deliveryAllowed) {
+      router.replace("/checkout?type=delivery", { scroll: false });
+    }
+  }, [activeTab, checkoutBranch, deliveryAllowed, pickupAllowed, router]);
 
   const updateQuantity = async (id: string, type: "inc" | "dec") => {
     const currentItem = cartItems.find((item) => String(item.id) === id);
     if (!currentItem) return;
 
     const currentQty = Math.max(1, toNumber(currentItem.quantity, 1));
+
+    if (type === "dec" && currentQty <= 1) {
+      await deleteItem(id);
+      return;
+    }
 
     const newQty =
       type === "inc" ? currentQty + 1 : Math.max(1, currentQty - 1);
@@ -517,6 +815,9 @@ function CheckoutPageContent() {
         return;
       }
 
+      dispatchCartChanged({
+        itemCount: Math.max(0, getCartItemCount(previousCartItems) - currentQty + newQty),
+      });
       await fetchCart();
     } catch (err) {
       setCartItems(previousCartItems);
@@ -552,6 +853,12 @@ function CheckoutPageContent() {
         return;
       }
 
+      dispatchCartChanged({
+        itemCount: Math.max(
+          0,
+          getCartItemCount(previousCartItems) - Math.max(1, toNumber(currentItem?.quantity, 1))
+        ),
+      });
       await fetchCart();
       toast.success(t("toast.itemRemoved"));
     } catch (err) {
@@ -595,6 +902,7 @@ function CheckoutPageContent() {
       }
 
       clearBackendError();
+      dispatchCartChanged({ itemCount: 0 });
       return true;
     } catch (err) {
       setCartItems(previousCartItems);
@@ -642,34 +950,56 @@ function CheckoutPageContent() {
   };
 
   const getOrderTime = () => {
-    if (!pickupDate || !pickupTime) return null;
+    if (pickupScheduleMode === "now") {
+      return isImmediateScheduleAvailable({
+        branch: checkoutBranch,
+        scheduleType: "pickup",
+      })
+        ? undefined
+        : null;
+    }
+
+    if (!pickupDate || !pickupTime) {
+      return null;
+    }
 
     try {
       const date = new Date(pickupDate);
+      const dateValue = getDateValue(date);
+
+      if (isPastDateValue(dateValue)) {
+        return null;
+      }
 
       if (pickupTime === "ASAP") {
-        return new Date().toISOString();
+        return isImmediateScheduleAvailable({
+          branch: checkoutBranch,
+          scheduleType: "pickup",
+        })
+          ? new Date().toISOString()
+          : null;
       }
 
-      const [time, modifier] = pickupTime.includes(" ")
-        ? pickupTime.split(" ")
-        : [pickupTime, ""];
-      let [hours, minutes] = time.split(":").map(Number);
+      const pickupTimeValue = normalizePickupTimeValue(pickupTime);
 
-      if (modifier === "PM" && hours !== 12) {
-        hours += 12;
+      if (!pickupTimeValue) return null;
+
+      if (
+        !isScheduleTimeAvailable({
+          branch: checkoutBranch,
+          dateValue,
+          timeValue: pickupTimeValue.value,
+          scheduleType: "pickup",
+        })
+      ) {
+        return null;
       }
 
-      if (modifier === "AM" && hours === 12) {
-        hours = 0;
-      }
-
-      date.setHours(hours);
-      date.setMinutes(minutes);
-      date.setSeconds(0);
-      date.setMilliseconds(0);
-
-      return date.toISOString();
+      return getScheduleOrderTimeIso({
+        dateValue,
+        timeValue: pickupTimeValue.value,
+        timeZone: getBranchScheduleTimeZone(checkoutBranch),
+      });
     } catch (err) {
       return null;
     }
@@ -682,25 +1012,60 @@ function CheckoutPageContent() {
 
     const trimmedValue = scheduledDeliveryValue.trim();
 
-    if (!trimmedValue) return undefined;
+    if (deliveryScheduleMode === "now") {
+      return isImmediateScheduleAvailable({
+        branch: checkoutBranch,
+        scheduleType: "delivery",
+      })
+        ? undefined
+        : null;
+    }
 
-    const scheduledDate = new Date(trimmedValue);
+    if (!trimmedValue) {
+      return null;
+    }
 
-    if (Number.isNaN(scheduledDate.getTime())) return null;
+    const scheduledDate = getScheduledDateTime(trimmedValue);
 
-    return scheduledDate.toISOString();
+    if (!scheduledDate) return null;
+
+    const dateValue = getDateValue(scheduledDate);
+
+    if (isPastDateValue(dateValue)) {
+      return null;
+    }
+
+    const timeValue = trimmedValue.split("T")[1]?.slice(0, 5) || "";
+
+    if (checkoutBranch) {
+      if (
+        !isScheduleTimeAvailable({
+          branch: checkoutBranch,
+          dateValue,
+          timeValue,
+          scheduleType: "delivery",
+        })
+      ) {
+        return null;
+      }
+    }
+
+    return getScheduleOrderTimeIso({
+      dateValue,
+      timeValue,
+      preparationMinutes: totalPreparationMinutes,
+      timeZone: getBranchScheduleTimeZone(checkoutBranch),
+    });
   };
 
   const setCartSchedule = async (scheduledDeliveryAt?: string | null) => {
     if (!customerId || scheduledDeliveryAt === undefined) return true;
 
     try {
-      const restaurantMenuId = getCartRestaurantMenuId(cartItems);
       const res = await updateCustomerCart({
         customerId,
         payload: {
           orderTime: scheduledDeliveryAt,
-          ...(restaurantMenuId ? { restaurantMenuId } : {}),
         },
       });
 
@@ -793,6 +1158,16 @@ function CheckoutPageContent() {
         return;
       }
 
+      if (activeTab === "delivery" && !deliveryAllowed) {
+        toast.error(t("toast.deliveryUnavailable"));
+        return;
+      }
+
+      if (activeTab === "pickup" && !pickupAllowed) {
+        toast.error(t("toast.pickupUnavailable"));
+        return;
+      }
+
       if (activeTab === "delivery" && isGuest && !hasGuestDeliveryAddress(guestDeliveryAddress)) {
         toast.error(t("toast.enterGuestDeliveryAddress"));
         return;
@@ -802,14 +1177,6 @@ function CheckoutPageContent() {
         toast.error(t("toast.selectAddress"));
         return;
       }
-
-      if (activeTab === "pickup" && (!pickupDate || !pickupTime)) {
-        toast.error(t("toast.selectPickupDateTime"));
-        return;
-      }
-
-      const addressUpdated = await setCartAddress();
-      if (!addressUpdated) return;
 
       const scheduledDeliveryAt = getScheduledDeliveryAt();
 
@@ -822,8 +1189,12 @@ function CheckoutPageContent() {
         return;
       }
 
-      const scheduleUpdated = await setCartSchedule(scheduledDeliveryAt);
+      const cartOrderTime = scheduledDeliveryAt === undefined ? null : scheduledDeliveryAt;
+      const scheduleUpdated = await setCartSchedule(cartOrderTime);
       if (!scheduleUpdated) return;
+
+      const addressUpdated = await setCartAddress();
+      if (!addressUpdated) return;
 
       const checkoutTipAmount = Math.max(
         0,
@@ -851,7 +1222,7 @@ function CheckoutPageContent() {
       const res = await checkoutCustomerCart({
         customerId,
         payload: {
-          ...(scheduledDeliveryAt ? { orderTime: scheduledDeliveryAt } : {}),
+          ...(cartOrderTime !== undefined ? { orderTime: cartOrderTime } : {}),
           ...(checkoutTipAmount > 0 ? { tipAmount: checkoutTipAmount } : {}),
           ...(checkoutLoyaltyPoints > 0 ? { loyaltyPoints: checkoutLoyaltyPoints } : {}),
           ...(isGuest
@@ -891,7 +1262,7 @@ function CheckoutPageContent() {
       if (checkoutPaymentMethod === "STRIPE") {
         const attemptRes = await post(`/v1/payments/orders/${orderId}/attempts`, {
           paymentMethod: "STRIPE",
-          currency: "USD",
+          currency,
           note: "Order payment",
         });
 
@@ -905,12 +1276,25 @@ function CheckoutPageContent() {
         }
 
         const payment = asRecord(attemptRes?.data);
+        const paymentSession = asRecord(attemptRes?.paymentSession);
         const providerData = asRecord(payment.providerData);
+        const clientSecret =
+          typeof paymentSession.clientSecret === "string"
+            ? paymentSession.clientSecret
+            : typeof providerData.clientSecret === "string"
+              ? providerData.clientSecret
+              : "";
+        const publishableKey =
+          typeof paymentSession.publishableKey === "string"
+            ? paymentSession.publishableKey
+            : typeof providerData.publishableKey === "string"
+              ? providerData.publishableKey
+              : "";
 
         setStripePayment({
           open: true,
-          clientSecret: typeof providerData.clientSecret === "string" ? providerData.clientSecret : "",
-          publishableKey: typeof providerData.publishableKey === "string" ? providerData.publishableKey : "",
+          clientSecret,
+          publishableKey,
           paymentId: typeof payment.id === "string" ? payment.id : String(payment.id ?? ""),
           orderId,
         });
@@ -943,7 +1327,13 @@ function CheckoutPageContent() {
     try {
       setValidatingCoupon(true);
 
-      const res = await patch(`/v1/cart/coupon`, {
+      if (!customerId) {
+        toast.error(t("toast.failedFetchCart"));
+        return;
+      }
+
+      const res = await applyCheckoutCoupon({
+        customerId,
         couponCode: couponCode.trim(),
       });
 
@@ -978,7 +1368,12 @@ function CheckoutPageContent() {
     try {
       setRemovingCoupon(true);
 
-      const res = await del(`/v1/cart/coupon`);
+      if (!customerId) {
+        toast.error(t("toast.failedFetchCart"));
+        return;
+      }
+
+      const res = await removeCheckoutCoupon({ customerId });
 
       if (hasBackendError(res)) {
         reportBackendError(
@@ -1014,7 +1409,11 @@ function CheckoutPageContent() {
     <div className="mx-auto mb-[113px] mt-[63px] max-w-[1400px] px-4 md:px-30">
       <div className="grid grid-cols-1 gap-16 lg:grid-cols-12">
         <div className="space-y-[38px] lg:col-span-7">
-          <Tabs activeTab={activeTab} />
+          <Tabs
+            activeTab={activeTab}
+            canShowDelivery={deliveryAllowed}
+            canShowPickup={pickupAllowed}
+          />
 
           {activeTab === "delivery" ? (
             <DeliverySection
@@ -1035,6 +1434,10 @@ function CheckoutPageContent() {
               setPaymentMethod={setPaymentMethod}
               scheduledDeliveryValue={scheduledDeliveryValue}
               setScheduledDeliveryValue={setScheduledDeliveryValue}
+              deliveryScheduleMode={deliveryScheduleMode}
+              setDeliveryScheduleMode={setDeliveryScheduleMode}
+              selectedBranch={checkoutBranch}
+              totalPreparationMinutes={totalPreparationMinutes}
             />
           ) : (
             <PickupSection
@@ -1055,7 +1458,9 @@ function CheckoutPageContent() {
               setPickupDate={setPickupDate}
               pickupTime={pickupTime}
               setPickupTime={setPickupTime}
-              selectedBranch={pickupBranch}
+              pickupScheduleMode={pickupScheduleMode}
+              setPickupScheduleMode={setPickupScheduleMode}
+              selectedBranch={checkoutBranch}
             />
           )}
         </div>
@@ -1087,42 +1492,41 @@ function CheckoutPageContent() {
             setLoyaltyPoints={setLoyaltyPoints}
             loadingLoyalty={loadingLoyalty}
             isGuest={isGuest}
+            currency={currency}
           />
         </div>
       </div>
 
       {stripePayment.open && stripePromise && stripePayment.clientSecret ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="max-h-[90vh] w-[400px] overflow-auto rounded-2xl bg-white p-6">
-            <h2 className="mb-4 text-lg font-semibold">{t("completePayment")}</h2>
+          <div className="relative max-h-[90vh] w-[min(420px,calc(100vw-32px))] overflow-auto rounded-2xl bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+            <button
+              type="button"
+              onClick={handleCloseStripePayment}
+              className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+              aria-label="Close payment popup"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <h2 className="mb-2 pr-10 text-lg font-semibold">{t("completePayment")}</h2>
+            <p className="mb-5 text-sm leading-6 text-gray-500">
+              You can close this and continue payment later from your order details.
+            </p>
 
             <Elements
               stripe={stripePromise}
               options={{ clientSecret: stripePayment.clientSecret }}
             >
               <OrderStripeCheckout
-                paymentId={stripePayment.paymentId}
                 onSuccess={async () => {
-                  setStripePayment({
-                    open: false,
-                    clientSecret: "",
-                    publishableKey: "",
-                    paymentId: "",
-                    orderId: "",
-                  });
+                  const paidOrderId = stripePayment.orderId;
+
+                  resetStripePayment();
 
                   window.dispatchEvent(new Event("loyalty-updated"));
                   await clearCart();
-                  router.push(`/order?success=true&orderId=${stripePayment.orderId}`);
-                }}
-                onFail={() => {
-                  setStripePayment({
-                    open: false,
-                    clientSecret: "",
-                    publishableKey: "",
-                    paymentId: "",
-                    orderId: "",
-                  });
+                  router.push(`/order?success=true&orderId=${paidOrderId}`);
                 }}
               />
             </Elements>
@@ -1134,21 +1538,14 @@ function CheckoutPageContent() {
 }
 
 const OrderStripeCheckout = ({
-  paymentId,
   onSuccess,
-  onFail,
 }: {
-  paymentId: string;
   onSuccess: () => void;
-  onFail: () => void;
 }) => {
   const t = useTranslations("checkout");
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
-
-  const { token } = useAuth();
-  const { post } = useCheckout(token);
 
   const handlePay = async () => {
     if (!stripe || !elements) return;
@@ -1162,22 +1559,11 @@ const OrderStripeCheckout = ({
       });
 
       if (error) {
-        await post(`/v1/payments/${paymentId}/fail`, {
-          note: error.message,
-        });
-
         toast.error(error.message || t("toast.paymentFailed"));
-        onFail();
         return;
       }
 
       if (paymentIntent?.status === "succeeded") {
-        await post(`/v1/payments/${paymentId}/mark-paid`, {
-          providerRef: paymentIntent.id,
-          providerData: paymentIntent,
-          note: "Stripe success",
-        });
-
         toast.success(t("toast.paymentSuccessful"));
         onSuccess();
         return;
@@ -1186,7 +1572,6 @@ const OrderStripeCheckout = ({
       toast.error(t("toast.paymentNotCompleted"));
     } catch (err) {
       toast.error(t("toast.paymentFailed"));
-      onFail();
     } finally {
       setLoading(false);
     }

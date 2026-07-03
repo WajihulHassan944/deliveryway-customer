@@ -1,14 +1,25 @@
 export type PromotionInfo = {
   promotionId?: string;
+  id?: string;
   title?: string | null;
   description?: string | null;
   applyMode?: "ORDER_TOTAL" | "SCOPED_ITEMS" | string;
   discountType?: "FLAT" | "PERCENTAGE" | string;
   discountValue?: number | string | null;
   maxDiscountAmount?: number | string | null;
+  originalPrice?: number | string | null;
   discountAmount?: number | string | null;
+  discountedPrice?: number | string | null;
   discountedAmount?: number | string | null;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  activeDays?: string[] | null;
+  dailyStartTime?: string | null;
+  dailyEndTime?: string | null;
+  isCurrentlyActive?: boolean | null;
 };
+
+export type HappyHourInfo = PromotionInfo;
 
 
 export type PromotionPricing = {
@@ -54,8 +65,10 @@ export type VariationPriceOverride = {
   modifierPriceOverrides?: MenuItemVariationModifierPriceOverride[];
   itemPriceOverrides?: VariationPriceOverride[];
   discountedPrice?: string | number | null;
+  happyHourDiscountedPrice?: string | number | null;
   discountedBasePrice?: string | number | null;
   promotion?: PromotionInfo | null;
+  happyHour?: HappyHourInfo | null;
 };
 
 export type MenuItemVariationPriceOverride = VariationPriceOverride;
@@ -71,8 +84,10 @@ export type MenuVariation = {
   pickupPrice?: string | number | null;
   displayText?: string | null;
   discountedPrice?: string | number | null;
+  happyHourDiscountedPrice?: string | number | null;
   discountedBasePrice?: string | number | null;
   promotion?: PromotionInfo | null;
+  happyHour?: HappyHourInfo | null;
   sortOrder?: number;
   isDefault?: boolean;
   isActive?: boolean;
@@ -186,6 +201,7 @@ export type MenuItem = {
   supportsDealIdCartPayload?: boolean | null;
   supportsDealCartPayload?: boolean | null;
   isDealMenuItem?: boolean | null;
+  isActive?: boolean | null;
   minSelect?: string | number | null;
   maxSelect?: string | number | null;
   isRequired?: boolean | null;
@@ -193,7 +209,9 @@ export type MenuItem = {
   maxQuantity?: string | number | null;
   depositAmount?: string | number | null;
   promotion?: PromotionInfo | null;
+  happyHour?: HappyHourInfo | null;
   discountedPrice?: string | number | null;
+  happyHourDiscountedBasePrice?: string | number | null;
   discountedBasePrice?: string | number | null;
   settings?: ApiRecord;
   restaurant?: (Record<string, unknown> & { id?: string | number | null });
@@ -247,14 +265,21 @@ export type CartPayload = {
   splitPizza?: unknown;
 };
 
+import type { BranchSettings } from "@/types/branches";
+
 export type ApiRecord = Record<string, unknown>;
 
 export type AddressRecord = {
   street?: string | null;
+  houseNumber?: string | null;
+  shopNumber?: string | null;
+  postalCode?: string | null;
   area?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
+  lat?: string | number | null;
+  lng?: string | number | null;
 };
 
 export type RestaurantBranch = {
@@ -269,6 +294,7 @@ export type RestaurantBranch = {
   closingTime?: string | null;
   closesAt?: string | null;
   isActive?: boolean | null;
+  settings?: BranchSettings | null;
 };
 
 export type RestaurantInfo = {
@@ -332,6 +358,7 @@ export type MenuCategory = {
   imageUrl?: string | null;
   coverImage?: string | null;
   bannerUrl?: string | null;
+  happyHour?: HappyHourInfo | null;
 };
 
 export type ItemsCategory = MenuCategory;

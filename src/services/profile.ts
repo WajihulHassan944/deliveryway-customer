@@ -17,17 +17,20 @@ export type ProfileUpdatePayload = Pick<
 export type AddressRecord = {
   id: string;
   street?: string;
+  houseNumber?: string;
   area?: string;
   postalCode?: string;
   city?: string;
   state?: string;
   country?: string;
+  lat?: string;
+  lng?: string;
   isDefault?: boolean;
 };
 
 export type WalletSummary = {
   balance: number;
-  currency: string;
+  currency: string | null;
   transactionCount: number;
 };
 
@@ -43,6 +46,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const getData = (value: unknown) => (isRecord(value) ? value.data : undefined);
 
 const getString = (value: unknown) => (typeof value === "string" ? value : "");
+
+const getCoordinateString = (value: unknown) => {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+
+  return "";
+};
 
 const getNumber = (value: unknown, fallback = 0) => {
   const numberValue = Number(value);
@@ -77,7 +87,7 @@ export const fetchWalletSummary = async (api: Pick<ApiClient, "get">): Promise<W
   if (isRecord(res) && res.error) {
     return {
       balance: 0,
-      currency: "USD",
+      currency: null,
       transactionCount: 0,
     };
   }
@@ -87,7 +97,7 @@ export const fetchWalletSummary = async (api: Pick<ApiClient, "get">): Promise<W
 
   return {
     balance: isRecord(data) ? getNumber(data.balance) : 0,
-    currency: isRecord(data) ? getString(data.currency) || "USD" : "USD",
+    currency: isRecord(data) ? getString(data.currency) || null : null,
     transactionCount: Array.isArray(history) ? history.length : 0,
   };
 };
@@ -99,11 +109,14 @@ export const fetchAddresses = async (api: Pick<ApiClient, "get">): Promise<Addre
   return Array.isArray(data) ? data.filter(isRecord).map((address) => ({
     id: getString(address.id),
     street: getString(address.street),
-    area: getString(address.area),
+    houseNumber: getString(address.houseNumber),
+    area: getString(address.houseNumber) || getString(address.area),
     postalCode: getString(address.postalCode),
     city: getString(address.city),
     state: getString(address.state),
     country: getString(address.country),
+    lat: getCoordinateString(address.lat),
+    lng: getCoordinateString(address.lng),
     isDefault: address.isDefault === true,
   })) : [];
 };

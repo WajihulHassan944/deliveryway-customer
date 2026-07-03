@@ -8,7 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCheckout } from "@/hooks/useCheckout";
 import { useAuth } from "@/hooks/useAuth";
-import { reverseGeocode } from "@/services/geocoding";
+import { formatDisplayAddress } from "@/lib/address-display";
+import { parseReverseGeocodeAddress, reverseGeocode } from "@/services/geocoding";
 import {
   fetchAddresses as fetchProfileAddresses,
   type AddressRecord,
@@ -96,27 +97,22 @@ export function DeliveryAddressSection({
       const lng = position.coords.longitude.toString();
       const geocode = await reverseGeocode(position.coords.latitude, position.coords.longitude);
 
-      const address = geocode.ok ? geocode.address || {} : {};
-      const getAddressValue = (value: unknown) => typeof value === "string" ? value : "";
+      const parsedAddress = geocode.ok
+        ? parseReverseGeocodeAddress(geocode.address || {}, geocode.displayName)
+        : null;
 
       setGuestDeliveryAddress({
         ...guestDeliveryAddress,
-        street: geocode.displayName || guestDeliveryAddress.street,
+        street: parsedAddress?.street || guestDeliveryAddress.street,
+        houseNumber: parsedAddress?.houseNumber || guestDeliveryAddress.houseNumber,
         area:
-          getAddressValue(address.suburb) ||
-          getAddressValue(address.neighbourhood) ||
-          getAddressValue(address.quarter) ||
-          getAddressValue(address.village) ||
+          parsedAddress?.houseNumber ||
+          parsedAddress?.area ||
           guestDeliveryAddress.area,
-        city:
-          getAddressValue(address.city) ||
-          getAddressValue(address.town) ||
-          getAddressValue(address.village) ||
-          getAddressValue(address.municipality) ||
-          guestDeliveryAddress.city,
-        state: getAddressValue(address.state) || guestDeliveryAddress.state,
-        postalCode: getAddressValue(address.postcode) || guestDeliveryAddress.postalCode,
-        country: getAddressValue(address.country) || guestDeliveryAddress.country,
+        city: parsedAddress?.city || guestDeliveryAddress.city,
+        state: parsedAddress?.state || guestDeliveryAddress.state,
+        postalCode: parsedAddress?.postalCode || guestDeliveryAddress.postalCode,
+        country: parsedAddress?.country || guestDeliveryAddress.country,
         lat,
         lng,
       });
@@ -172,7 +168,7 @@ export function DeliveryAddressSection({
 
         <div className="rounded-[22px] border border-gray-100 bg-white p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
+            <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">{t("street")}</label>
               <Input
                 value={guestDeliveryAddress.street}
@@ -183,11 +179,11 @@ export function DeliveryAddressSection({
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">{t("area")}</label>
+              <label className="text-sm font-medium text-gray-700">{addressT("houseNumber")}</label>
               <Input
-                value={guestDeliveryAddress.area}
-                onChange={(event) => updateGuestAddressField("area", event.target.value)}
-                placeholder={t("areaPlaceholder")}
+                value={guestDeliveryAddress.houseNumber}
+                onChange={(event) => updateGuestAddressField("houseNumber", event.target.value)}
+                placeholder={addressT("houseNumberPlaceholder")}
                 className="h-12 rounded-xl border-gray-200"
               />
             </div>
@@ -295,15 +291,6 @@ export function DeliveryAddressSection({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-[20px] md:gap-[30px]">
 
           {addresses.map((addr) => {
-            const fullAddress = [
-              addr.street,
-              addr.area,
-              addr.postalCode,
-              addr.city,
-              addr.state,
-              addr.country,
-            ].filter(Boolean).join(", ");
-
             const isSelected = selectedAddress === addr.id;
 
             return (
@@ -342,7 +329,7 @@ export function DeliveryAddressSection({
                       isSelected ? "" : "text-gray-700"
                     }`}
                   >
-                    {fullAddress}
+                    {formatDisplayAddress(addr)}
                   </p>
                 </div>
               </Card>

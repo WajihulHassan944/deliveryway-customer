@@ -2,12 +2,15 @@ import { getRequest } from "@/services/http";
 
 type LegalAddress = {
   street?: string;
+  shopNumber?: string;
+  postalCode?: string;
   city?: string;
   state?: string;
   country?: string;
 };
 
 export type LegalProfile = {
+  ownerName?: string;
   legalBusinessName?: string;
   taxNumber?: string;
   businessAddress?: LegalAddress;
@@ -16,6 +19,7 @@ export type LegalProfile = {
 
 export type PrivacyPolicyContent = {
   restaurantId?: string;
+  restaurantCoverImage?: string;
   title: string;
   content: string;
   legalProfile?: LegalProfile | null;
@@ -27,15 +31,28 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const getString = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 
+const looksLikePostalCode = (value: unknown) =>
+  typeof value === "string" && /[0-9]/.test(value) && /^[A-Za-z0-9][A-Za-z0-9 -]{2,10}$/.test(value.trim());
+
 const normalizeLegalAddress = (value: unknown): LegalAddress | undefined => {
   if (!isRecord(value)) {
     return undefined;
   }
 
+  const explicitPostalCode = getString(value.postalCode) ?? getString(value.zipCode) ?? getString(value.zip);
+  const state = getString(value.state);
+  const stateAsPostalCode = !explicitPostalCode && looksLikePostalCode(state) ? state : undefined;
   const address = {
     street: getString(value.street),
+    shopNumber:
+      getString(value.shopNumber) ??
+      getString(value.houseNumber) ??
+      getString(value.area) ??
+      getString(value.addressLine2) ??
+      getString(value.line2),
+    postalCode: explicitPostalCode ?? stateAsPostalCode,
     city: getString(value.city),
-    state: getString(value.state),
+    state: stateAsPostalCode ? undefined : state,
     country: getString(value.country),
   };
 
@@ -48,6 +65,7 @@ const normalizeLegalProfile = (value: unknown): LegalProfile | null => {
   }
 
   const profile = {
+    ownerName: getString(value.ownerName),
     legalBusinessName: getString(value.legalBusinessName),
     taxNumber: getString(value.taxNumber),
     businessAddress: normalizeLegalAddress(value.businessAddress),
@@ -62,6 +80,7 @@ export const normalizePrivacyPolicyContent = (value: unknown): PrivacyPolicyCont
 
   return {
     restaurantId: getString(record.restaurantId),
+    restaurantCoverImage: getString(record.restaurantCoverImage),
     title: getString(record.title) ?? "Privacy Policy",
     content: getString(record.content) ?? "",
     legalProfile: normalizeLegalProfile(record.legalProfile),

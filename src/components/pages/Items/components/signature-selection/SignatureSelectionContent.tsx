@@ -17,9 +17,12 @@ import {
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useCart } from "@/hooks/useCart";
+import { FavoriteHeartButton } from "@/components/common/favorites/FavoriteHeartButton";
+import { useHome } from "@/hooks/useHome";
 import useMenu from "@/hooks/useMenu";
 import { setStoredRestaurantMenuId } from "@/lib/timed-menu";
 import { useAuth } from "@/hooks/useAuth";
+import { formatMoney as formatDisplayMoney, resolveCustomerCurrency } from "@/lib/money";
 import { getSignatureMenuViewMode, setSignatureMenuViewMode } from "@/lib/view-preferences";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AsyncSelect } from "@/components/ui/AsyncSelect";
@@ -51,18 +54,28 @@ const hasText = (value: unknown) => {
   return text !== "" && text.toLowerCase() !== "null";
 };
 
-const formatMoney = (value: unknown) => {
-  return `$${toNumber(value, 0).toFixed(2)}`;
-};
+const formatMoney = (value: unknown, currency?: string | null) =>
+  formatDisplayMoney(value, currency, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-const formatModifierSelectionPrice = (unitPrice: number, quantity: number) => {
+const formatModifierSelectionPrice = (
+  unitPrice: number,
+  quantity: number,
+  currency?: string | null
+) => {
   const safeQuantity = Math.max(1, Math.floor(toNumber(quantity, 1)));
 
+  const sign = unitPrice >= 0 ? "+" : "-";
+  const absoluteUnitPrice = Math.abs(unitPrice);
+  const total = absoluteUnitPrice * safeQuantity;
+
   if (safeQuantity <= 1) {
-    return `+${formatMoney(unitPrice)}`;
+    return `${sign}${formatMoney(absoluteUnitPrice, currency)}`;
   }
 
-  return `+${formatMoney(unitPrice)} * ${safeQuantity} = +${formatMoney(unitPrice * safeQuantity)}`;
+  return `${sign}${formatMoney(absoluteUnitPrice, currency)} * ${safeQuantity} = ${sign}${formatMoney(total, currency)}`;
 };
 
 const titleizeConstant = (value: unknown) => {
@@ -497,6 +510,15 @@ export function SignatureSelectionContent({
   const { token } = useAuth();
   const { fetchSignatureMenus, fetchSignatureSplitPizzaItems } = useMenu(token);
   const { addCustomerCartItem, clearCustomerCart } = useCart(token);
+  const homeQuery = useHome(
+    restaurantId,
+    branchId,
+    Boolean(token && restaurantId && branchId)
+  );
+  const currency = resolveCustomerCurrency({
+    configCurrency: homeQuery.data?.data.config?.currency,
+    restaurant: homeQuery.data?.data.restaurant,
+  });
 
   const [menus, setMenus] = useState<MenuRecord[]>([]);
   const [activeMenuId, setActiveMenuId] = useState<string>("");
@@ -776,6 +798,24 @@ export function SignatureSelectionContent({
   const normalizeVariation = (raw: MenuVariation | ApiRecord | null | undefined): MenuVariation | null => {
     if (!raw?.id) return null;
     if (raw?.isActive === false) return null;
+    const rawRecord = raw as ApiRecord;
+    const happyHour = typeof rawRecord.happyHour === "object" && rawRecord.happyHour !== null && !Array.isArray(rawRecord.happyHour)
+      ? rawRecord.happyHour as ApiRecord
+      : null;
+    const promotion = typeof rawRecord.promotion === "object" && rawRecord.promotion !== null && !Array.isArray(rawRecord.promotion)
+      ? rawRecord.promotion as ApiRecord
+      : null;
+    const happyHourDiscountedPrice = typeof rawRecord.happyHourDiscountedPrice === "string" || typeof rawRecord.happyHourDiscountedPrice === "number"
+      ? rawRecord.happyHourDiscountedPrice
+      : typeof happyHour?.discountedPrice === "string" || typeof happyHour?.discountedPrice === "number"
+        ? happyHour.discountedPrice
+        : null;
+    const discountedPrice = happyHourDiscountedPrice ??
+      (typeof rawRecord.discountedPrice === "string" || typeof rawRecord.discountedPrice === "number"
+        ? rawRecord.discountedPrice
+        : typeof promotion?.discountedAmount === "string" || typeof promotion?.discountedAmount === "number"
+          ? promotion.discountedAmount
+          : null);
 
     return {
       id: String(raw.id),
@@ -784,6 +824,10 @@ export function SignatureSelectionContent({
       description: typeof raw?.description === "string" ? raw.description : "",
       price: typeof raw?.price === "string" || typeof raw?.price === "number" ? raw.price : 0,
       pickupPrice: typeof raw?.pickupPrice === "string" || typeof raw?.pickupPrice === "number" ? raw.pickupPrice : null,
+      discountedPrice,
+      happyHourDiscountedPrice,
+      promotion,
+      happyHour,
       displayText: typeof raw?.displayText === "string" ? raw.displayText : null,
       sortOrder: toNumber(raw?.sortOrder, 0),
       isDefault: Boolean(raw?.isDefault),
@@ -1609,7 +1653,7 @@ export function SignatureSelectionContent({
     search: string;
     page: number;
   }) => {
-    return fetchSignatureSplitPizzaItems({ restaurantId, search, page });
+    return fetchSignatureSplitPizzaItems({ restaurantId, branchId, search, page });
   };
 
   const openItemModal = (item: MenuItem) => {
@@ -1982,9 +2026,9 @@ export function SignatureSelectionContent({
                   </span>
                 </span>
 
-                {effectivePrice > 0 ? (
+                {effectivePrice !== 0 ? (
                   <span className="shrink-0 font-semibold text-primary">
-                    +${effectivePrice.toFixed(2)}
+                    {formatModifierSelectionPrice(effectivePrice, 1, currency)}
                   </span>
                 ) : null}
               </label>
@@ -2128,11 +2172,12 @@ export function SignatureSelectionContent({
                       </span>
                     </label>
 
-                    {toNumber(effectivePrice, 0) > 0 ? (
+                    {toNumber(effectivePrice, 0) !== 0 ? (
                       <span className="shrink-0 font-medium text-primary">
                         {formatModifierSelectionPrice(
                           effectivePrice,
-                          selectedModifierQuantity
+                          selectedModifierQuantity,
+                          currency
                         )}
                       </span>
                     ) : null}
@@ -2223,6 +2268,11 @@ export function SignatureSelectionContent({
               <Eye size={16} />
             </button>
           ) : null}
+
+          <FavoriteHeartButton
+            menuItemId={product.id}
+            className="absolute left-3 top-3 z-10"
+          />
         </div>
 
         <div className="p-4">
@@ -2233,7 +2283,7 @@ export function SignatureSelectionContent({
             </h3>
 
             <span className="shrink-0 pt-0.5 text-[18px] font-semibold text-primary">
-              ${toNumber(product.price, 0).toFixed(2)}
+              {formatMoney(product.price, currency)}
             </span>
           </div>
 
@@ -2497,6 +2547,11 @@ export function SignatureSelectionContent({
                     {tSignature("selectOptions")}
                   </p>
                 </div>
+
+                <FavoriteHeartButton
+                  menuItemId={selectedItem.id}
+                  className="h-9 w-9 shrink-0 border border-gray-100"
+                />
               </div>
 
               {getItemVariations(selectedItem).length > 0 ? (
@@ -2538,7 +2593,7 @@ export function SignatureSelectionContent({
 
                           {toNumber(variation.price, 0) > 0 ? (
                             <span className="shrink-0 text-sm font-semibold text-primary">
-                              ${toNumber(variation.price, 0).toFixed(2)}
+                              {formatMoney(variation.price, currency)}
                             </span>
                           ) : null}
                         </div>
@@ -2618,11 +2673,10 @@ export function SignatureSelectionContent({
                               splitPizzaPricingVariation
                             ) > 0 ? (
                               <span className="shrink-0 font-medium text-primary">
-                                $
-                                {getMenuItemResolvedPrice(
+                                {formatMoney(getMenuItemResolvedPrice(
                                   splitPizzaItem,
                                   splitPizzaPricingVariation
-                                ).toFixed(2)}
+                                ), currency)}
                               </span>
                             ) : null}
                           </div>
@@ -2699,7 +2753,7 @@ export function SignatureSelectionContent({
                 </div>
 
                 <div className="text-lg font-semibold text-primary">
-                  ${totalModalPrice.toFixed(2)}
+                  {formatMoney(totalModalPrice, currency)}
                 </div>
               </div>
 

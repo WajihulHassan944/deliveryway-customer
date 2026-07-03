@@ -56,6 +56,29 @@ describe("checkout normalizers", () => {
     });
   });
 
+  it("normalizes cart item preparation time from backend item or menu item", () => {
+    expect(
+      normalizeCartItem({
+        id: "cart-item-1",
+        quantity: 2,
+        prepTimeMinutes: 20,
+        menuItem: { name: "Pizza", prepTimeMinutes: 15 },
+      })
+    ).toMatchObject({
+      prepTimeMinutes: 20,
+    });
+
+    expect(
+      normalizeCartItem({
+        id: "cart-item-2",
+        quantity: 1,
+        menuItem: { name: "Pasta", prepTimeMinutes: 12 },
+      })
+    ).toMatchObject({
+      prepTimeMinutes: 12,
+    });
+  });
+
   it("ready-made deal item with empty modifiers has no displayable modifiers", () => {
     expect(
       getSelectedModifiers({
@@ -149,6 +172,82 @@ describe("checkout normalizers", () => {
     const normalized = normalizeCartItem(items[0]);
     expect(normalized.name).toBe("Burger");
     expect(recalculateCartItemQuantity(normalized, 3).lineTotal).toBe(15);
+  });
+
+  it("uses cart item fallback fields when mutation responses omit nested menu item details", () => {
+    const normalized = normalizeCartItem({
+      id: "cart-item-1",
+      quantity: 1,
+      unitPrice: 30,
+      unitPriceWithModifiers: 51,
+      lineTotal: 51,
+      name: "Lahori Chicken Pizza",
+      description: "test test test",
+      imageUrl: "/pizza.avif",
+      menuItemId: "menu-item-1",
+    });
+
+    expect(normalized.name).toBe("Lahori Chicken Pizza");
+    expect(normalized.desc).toBe("test test test");
+    expect(normalized.img).toBe("/pizza.avif");
+    expect(normalized.lineTotal).toBe(51);
+  });
+
+  it("preserves per-item cart discount contract fields", () => {
+    const normalized = normalizeCartItem({
+      id: "cart-item-1",
+      quantity: 1,
+      unitPriceWithModifiers: 10,
+      lineTotal: 10,
+      name: "Happy hour item",
+      happyHour: { id: "happy-hour-1", title: "Happy hour" },
+      promotion: null,
+      promotionDiscountAmount: 3,
+      discountedUnitPrice: 7,
+      discountedLineTotal: 7,
+    });
+
+    expect(normalized.happyHour).toEqual({ id: "happy-hour-1", title: "Happy hour" });
+    expect(normalized.promotion).toBeNull();
+    expect(normalized.promotionDiscountAmount).toBe(3);
+    expect(normalized.discountedUnitPrice).toBe(7);
+    expect(normalized.discountedLineTotal).toBe(7);
+  });
+
+  it("resolves modifier names and prices from flat menu item modifiers", () => {
+    const normalized = normalizeCartItem({
+      id: "cart-item-1",
+      quantity: 1,
+      modifiers: [{ modifierId: "modifier-1", quantity: 1 }],
+      menuItem: {
+        name: "Lahori Chicken Pizza",
+        selectedVariation: {
+          id: "small",
+          name: "Small",
+          displayText: "Small",
+        },
+        modifiers: [
+          {
+            id: "modifier-1",
+            name: "Lahori pizza modifier",
+            priceDelta: 21,
+          },
+        ],
+      },
+    });
+
+    expect(normalized.selectedVariationName).toBe("Small");
+    expect(normalized.selectedModifiers).toEqual([
+      {
+        id: "",
+        modifierId: "modifier-1",
+        name: "Lahori pizza modifier",
+        quantity: 1,
+        unitPrice: 21,
+        priceDelta: undefined,
+        total: 21,
+      },
+    ]);
   });
 
   it("preserves backend cart item pricing and selected deal fields", () => {
@@ -245,17 +344,83 @@ describe("checkout normalizers", () => {
         type: "ITEM",
         id: undefined,
         menuItemId: "burger-1",
+        variationId: undefined,
         name: "Burger",
         quantity: 1,
         menuItem: { name: "Burger" },
+        selectedModifiers: [],
       },
       {
         type: "ITEM",
         id: undefined,
         menuItemId: "drink-1",
+        variationId: undefined,
         name: "Drink",
         quantity: 1,
         menuItem: { name: "Drink" },
+        selectedModifiers: [],
+      },
+    ]);
+  });
+
+  it("preserves selected modifiers returned on flexible deal included items", () => {
+    const normalized = normalizeCartItem({
+      id: "deal:deal-flex",
+      type: "DEAL",
+      dealId: "deal-flex",
+      quantity: 1,
+      unitPrice: 99,
+      lineTotal: 99,
+      deal: {
+        id: "deal-flex",
+        title: "Flexible Deal",
+      },
+      includedItems: [
+        {
+          type: "ITEM",
+          menuItemId: "pizza-1",
+          variationId: "large",
+          quantity: 1,
+          menuItem: { name: "Pizza" },
+          modifierSelections: [
+            {
+              modifierGroupId: "group-toppings",
+              modifiers: [{ modifierId: "modifier-cheese", quantity: 2 }],
+            },
+          ],
+          selectedModifiers: [
+            {
+              modifierId: "modifier-cheese",
+              name: "Cheese",
+              quantity: 2,
+              unitPrice: 0,
+              total: 0,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.includedItems).toEqual([
+      {
+        type: "ITEM",
+        id: undefined,
+        menuItemId: "pizza-1",
+        variationId: "large",
+        name: "Pizza",
+        quantity: 1,
+        menuItem: { name: "Pizza" },
+        selectedModifiers: [
+          {
+            id: "",
+            modifierId: "modifier-cheese",
+            name: "Cheese",
+            quantity: 2,
+            unitPrice: 0,
+            priceDelta: undefined,
+            total: 0,
+          },
+        ],
       },
     ]);
   });
@@ -414,6 +579,44 @@ describe("checkout normalizers", () => {
     expect(quote?.payableAmount).toBe(899);
   });
 
+  it("does not treat quote snapshot rows as display cart items", () => {
+    const { items, quote } = normalizeCartResponse({
+      data: {
+        subtotal: 51,
+        deliveryFee: 2,
+        totalAmount: 53,
+        payableAmount: 53,
+        items: [
+          {
+            menuItemId: "pizza-1",
+            menuItemName: "Lahori Chicken Pizza",
+            variationId: "small",
+            variationName: "Small",
+            quantity: 1,
+            unitPrice: 51,
+            lineTotal: 51,
+            snapshotModifiers: [
+              {
+                modifierId: "modifier-1",
+                name: "Lahori pizza modifier",
+                quantity: 1,
+                unitPrice: 21,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(items).toEqual([]);
+    expect(quote).toMatchObject({
+      subtotal: 51,
+      deliveryFee: 2,
+      totalAmount: 53,
+      payableAmount: 53,
+    });
+  });
+
   it("preserves saved cart coupon values from wrapped cart response", () => {
     const { quote } = normalizeCartResponse({
       data: {
@@ -451,6 +654,12 @@ describe("checkout normalizers", () => {
           discountAmount: 0,
           totalAmount: 1400,
           payableAmount: 1400,
+          chargeBreakdown: {
+            taxes: [{ code: "STANDARD", label: "Standard tax", percentage: 19, amount: 190 }],
+            serviceCharges: [{ code: "SERVICE", label: "Service charge", percentage: 10, amount: 100 }],
+            totalTaxAmount: 190,
+            totalServiceChargeAmount: 100,
+          },
         },
       },
     });
@@ -465,6 +674,12 @@ describe("checkout normalizers", () => {
       deliveryFee: 150,
       discountAmount: 0,
       totalAmount: 1400,
+      chargeBreakdown: {
+        taxes: [{ code: "STANDARD", label: "Standard tax", percentage: 19, amount: 190 }],
+        serviceCharges: [{ code: "SERVICE", label: "Service charge", percentage: 10, amount: 100 }],
+        totalTaxAmount: 190,
+        totalServiceChargeAmount: 100,
+      },
     });
   });
 });

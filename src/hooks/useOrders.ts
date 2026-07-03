@@ -12,7 +12,10 @@ import {
   getOrders,
   patchOrders,
   postOrders,
+  reorderOrderToCart,
+  submitOrderReview,
   type ReorderPayload,
+  type SubmitOrderReviewPayload,
 } from "@/services/orders";
 
 const service = {
@@ -41,14 +44,28 @@ export const useOrders = (token: string | null) => {
     [token]
   );
 
+  const reorderOrder = useCallback(
+    ({ orderId, customerId }: { orderId: string; customerId?: string | null }) =>
+      reorderOrderToCart({ orderId, customerId, token }),
+    [token]
+  );
+
+  const reviewOrder = useCallback(
+    ({ orderId, payload }: { orderId: string; payload: SubmitOrderReviewPayload }) =>
+      submitOrderReview({ orderId, payload, token }),
+    [token]
+  );
+
   return useMemo(
     () => ({
       ...api,
       fetchOrderById: getOrderById,
       fetchOrdersPage: getOrdersPage,
       addCartItemForReorder: reorderCartItem,
+      reorderOrderToCart: reorderOrder,
+      submitOrderReview: reviewOrder,
     }),
-    [api, getOrderById, getOrdersPage, reorderCartItem]
+    [api, getOrderById, getOrdersPage, reorderCartItem, reorderOrder, reviewOrder]
   );
 };
 

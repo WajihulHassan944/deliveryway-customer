@@ -34,7 +34,7 @@ export type CheckoutCartPayload = Record<string, unknown> & {
 export const normalizeCheckoutPaymentMethod = (paymentMethod: unknown) => {
   const normalized = typeof paymentMethod === "string" ? paymentMethod.trim().toUpperCase() : "";
 
-  if (normalized === "CARD" || normalized === "CARD_ON_DELIVERY") {
+  if (normalized === "CARD") {
     return "STRIPE";
   }
 
@@ -42,7 +42,12 @@ export const normalizeCheckoutPaymentMethod = (paymentMethod: unknown) => {
     return "WALLET";
   }
 
-  if (normalized === "COD" || normalized === "PAYPAL" || normalized === "STRIPE") {
+  if (
+    normalized === "CARD_ON_DELIVERY" ||
+    normalized === "COD" ||
+    normalized === "PAYPAL" ||
+    normalized === "STRIPE"
+  ) {
     return normalized;
   }
 
@@ -81,3 +86,30 @@ export const checkoutCustomerCart = ({
   token?: string | null;
 }): Promise<ApiResult> =>
   postCheckout(`/v1/cart/checkout?customerId=${customerId}`, normalizeCheckoutPayload(payload), token);
+
+export const applyCheckoutCoupon = ({
+  customerId,
+  couponCode,
+  token,
+}: {
+  customerId: string;
+  couponCode: string;
+  token?: string | null;
+}): Promise<ApiResult> =>
+  patchCheckout(
+    `/v1/cart/coupon?customerId=${encodeURIComponent(customerId)}`,
+    { couponCode },
+    token
+  );
+
+export const removeCheckoutCoupon = ({
+  customerId,
+  token,
+}: {
+  customerId: string;
+  token?: string | null;
+}): Promise<ApiResult> =>
+  deleteCheckout(
+    `/v1/cart/coupon?customerId=${encodeURIComponent(customerId)}`,
+    token
+  );

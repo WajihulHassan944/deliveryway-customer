@@ -16,6 +16,7 @@ export type DealChooserModifier = {
   name?: string | null;
   modifierGroupId?: string | number | null;
   priceDelta?: string | number | null;
+  [key: string]: unknown;
 };
 
 export type DealChooserModifierGroup = {
@@ -69,6 +70,7 @@ export const getDealChooserModifierGroups = (
       maxSelect: typeof group.maxSelect === "string" || typeof group.maxSelect === "number" ? group.maxSelect : null,
       modifiers: Array.isArray(group.modifiers)
         ? group.modifiers.filter(isRecord).map((modifier) => ({
+            ...modifier,
             id: modifier.id as string | number | null | undefined,
             name: typeof modifier.name === "string" ? modifier.name : null,
             priceDelta: typeof modifier.priceDelta === "string" || typeof modifier.priceDelta === "number" ? modifier.priceDelta : null,
@@ -99,6 +101,7 @@ export const getDealChooserModifierGroups = (
       currentGroup.modifiers = [
         ...(currentGroup.modifiers || []),
         {
+          ...modifier,
           id: modifierId,
           name: typeof modifier?.name === "string" ? modifier.name : "Option",
           modifierGroupId: groupId,
@@ -136,6 +139,7 @@ export const getDealChooserModifierGroups = (
     currentGroup.modifiers = [
       ...(currentGroup.modifiers || []),
       {
+        ...modifier,
         id: modifierId,
         name: typeof modifier.name === "string" ? modifier.name : "Option",
         modifierGroupId: groupId,
@@ -198,6 +202,38 @@ export const getDealChooserGroupHelperText = (group: DealChooserModifierGroup) =
   }
 
   return "Optional";
+};
+
+export const getDealChooserSelectedModifiersTotal = ({
+  item,
+  configuration,
+}: {
+  item: CustomerDealMenuItem;
+  configuration?: DealChooserItemConfiguration;
+}) => {
+  if (!configuration?.modifierSelections?.length) {
+    return 0;
+  }
+
+  const groups = getDealChooserModifierGroups(item);
+
+  return configuration.modifierSelections.reduce((total, selection) => {
+    const groupId = getDealChooserId(selection.modifierGroupId);
+    const group = groups.find((entry) => getDealChooserId(entry.id) === groupId);
+    const modifiers = Array.isArray(group?.modifiers) ? group.modifiers : [];
+
+    return total + selection.modifiers.reduce((selectionTotal, selectedModifier) => {
+      const modifierId = getDealChooserId(selectedModifier.modifierId);
+      const modifier = modifiers.find((entry) => getDealChooserId(entry.id) === modifierId);
+      const unitPrice = getDealChooserNumber(modifier?.priceDelta, 0);
+      const quantity = Math.max(
+        1,
+        Math.floor(getDealChooserNumber(selectedModifier.quantity, 1))
+      );
+
+      return selectionTotal + unitPrice * quantity;
+    }, 0);
+  }, 0);
 };
 
 export const isDealChooserItemConfigurable = (item: CustomerDealMenuItem) =>

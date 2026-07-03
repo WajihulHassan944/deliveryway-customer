@@ -1,23 +1,28 @@
 "use client";
 
 import Image from "next/image";
-import { Star, RefreshCw, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Loader2, Star } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import useOrders from "@/hooks/useOrders";
 import { useAuthContext } from "@/hooks/useAuth";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import useBranchSelector from "@/hooks/useBranchSelector";
-import { BranchPopup } from "@/components/common/popups/BranchPopup";
-import { getStoredAuthState } from "@/lib/auth";
-import type { Order, OrderItem, OrderMeta } from "@/services/orders";
-import { useTranslations } from "next-intl";
+import {
+  canReviewOrder,
+  type Order,
+  type OrderItem,
+  type OrderMeta,
+} from "@/services/orders";
+import { useCustomerReviews } from "@/hooks/useCustomerReviews";
+import { useLocale, useTranslations } from "next-intl";
+
 export function OrdersHistoryPage() {
   const t = useTranslations("ordersHistory");
   const errorT = useTranslations("errors");
-  const { token } = useAuthContext();
-  const { addCartItemForReorder, fetchOrdersPage } = useOrders(token);
+  const locale = useLocale();
+  const { token, user } = useAuthContext();
+  const { fetchOrdersPage, reorderOrderToCart } = useOrders(token);
 const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,15 +30,31 @@ const router = useRouter();
  const [reorderingId, setReorderingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState<OrderMeta | null>(null);
-  const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
-const {
-  showBranchPopup,
-  setShowBranchPopup,
-  branches,
-  loadingBranches,
-  fetchBranches,
-  selectBranch,
-} = useBranchSelector(() => handleReorder(pendingOrder));
+  const restaurantId = useMemo(() => {
+    return String(user?.restaurantId || user?.branch?.restaurantId || "");
+  }, [user?.branch?.restaurantId, user?.restaurantId]);
+  const branchId = useMemo(
+    () =>
+      user?.branchId || user?.branch?.id
+        ? String(user?.branchId || user?.branch?.id)
+        : null,
+    [user?.branch?.id, user?.branchId]
+  );
+  const { reviews: customerReviews } = useCustomerReviews({
+    restaurantId,
+    branchId,
+    page: 1,
+    limit: 50,
+    locale,
+  });
+  const reviewByOrderId = useMemo(() => {
+    return new Map(
+      customerReviews
+        .filter((review) => review.orderId)
+        .map((review) => [review.orderId, review])
+    );
+  }, [customerReviews]);
+
   // ================= REORDER FUNCTION =================
   const handleReorder = async (order: Order | null) => {
   try {
@@ -41,33 +62,7 @@ const {
 
     setReorderingId(order.id);
 
-    const auth = getStoredAuthState();
-    const user = typeof auth?.user === "object" && auth.user !== null ? auth.user as Record<string, unknown> : null;
-
-    const customerId = user?.id ? String(user.id) : "";
-    let branchId = user?.branchId ? String(user.branchId) : "";
-
-    if (!customerId) {
-      toast.error(t("userNotFound"));
-      return;
-    }
-
-    // ❗ If no branch → STOP (same behavior as your other flow)
-    if (!branchId) {
-  setPendingOrder(order);
-  await fetchBranches();
-  return;
-}
-
-
-    for (const item of order.itemsPreview) {
-      await addCartItemForReorder({ customerId, payload: {
-        menuItemId: item.menuItemId,
-        quantity: item.quantity,
-        branchId,
-        note: "",
-      } });
-    }
+    await reorderOrderToCart({ orderId: order.id });
 
     toast.success(t("reorderSuccessful"));
 
@@ -112,7 +107,11 @@ const {
 
   // ================= FORMAT DATE =================
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleString();
+    return new Date(date).toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      hourCycle: "h23",
+    });
   };
 
   // ================= STATUS MAP =================
@@ -130,6 +129,8 @@ const {
         return t("status.preparing");
       case "PICKED_UP":
         return t("status.pickedUp");
+      case "SERVED":
+        return t("status.served");
       default:
         return status;
     }
@@ -173,6 +174,10 @@ const {
           <div className="space-y-4 sm:space-y-5">
             {orders.map((order) => {
               const firstItem = order.itemsPreview?.[0];
+              const connectedReview =
+                order.review ?? reviewByOrderId.get(order.id) ?? null;
+              const orderForReviewState = { ...order, review: connectedReview };
+              const reviewRating = connectedReview?.rating ?? 0;
 
               return (
                 <div
@@ -257,8 +262,7 @@ const {
                   {/* BOTTOM */}
                  <div className="bg-[#f6f6f6] border-t border-[#f2f2f2] px-4 py-3 flex justify-between items-center">
 
-  {order.status === "PLACED" ? (
-    order.review ? (
+  {connectedReview ? (
       <>
         {/*  Already reviewed */}
         <span className="text-[12px] text-gray-400">
@@ -271,7 +275,7 @@ const {
               key={star}
               size={14}
               className={
-                star <= (order.review?.rating || 0)
+                star <= reviewRating
                   ? "text-[#EC5834] fill-[#EC5834]"
                   : "text-gray-300"
               }
@@ -279,7 +283,7 @@ const {
           ))}
         </div>
       </>
-    ) : (
+  ) : canReviewOrder(orderForReviewState) ? (
       <>
         {/*  No review */}
         <span className="text-[12px] text-gray-400">
@@ -295,7 +299,6 @@ const {
           {t("writeReview")}
         </button>
       </>
-    )
   ) : (
     <span className="text-[12px] text-gray-400">
       {t("orderProcessing")}
@@ -342,13 +345,6 @@ const {
           </div>
         )}
       </div>
-      <BranchPopup
-  show={showBranchPopup}
-  onClose={() => setShowBranchPopup(false)}
-  branches={branches}
-  loading={loadingBranches}
-  onSelect={selectBranch}
-/>
     </div>
   );
 }

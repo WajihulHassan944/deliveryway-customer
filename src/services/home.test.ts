@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getHome, getHomeCategories } from "./home";
+import { getHome, getHomeCategories, getPromotionalItems } from "./home";
 
 const getRequestMock = vi.hoisted(() => vi.fn());
 
@@ -18,6 +18,16 @@ describe("getHome", () => {
       data: {
         restaurant: { name: "Demo" },
         config: { currency: "USD", branding: { theme: { primaryColor: "#111111" } } },
+        giftCards: {
+          isEnabled: true,
+          items: [
+            {
+              id: "gift-card-1",
+              title: "Dinner for two",
+              amount: "2500",
+            },
+          ],
+        },
         cuisines: [{ id: "c1" }],
         promotionalItems: [{ id: "p1" }],
         faqs: [{ id: "f1" }],
@@ -30,6 +40,8 @@ describe("getHome", () => {
     expect(response.data.restaurant?.name).toBe("Demo");
     expect(response.data.config?.currency).toBe("USD");
     expect(response.data.branding.primaryColor).toBe("#111111");
+    expect(response.data.giftCards?.isEnabled).toBe(true);
+    expect(response.data.giftCards?.items[0].amount).toBe(2500);
     expect(response.data.cuisines).toHaveLength(1);
   });
 
@@ -108,5 +120,36 @@ describe("getHomeCategories", () => {
 
     expect(categories).toHaveLength(1);
     expect(categories[0].id).toBe("c1");
+  });
+});
+
+describe("getPromotionalItems", () => {
+  beforeEach(() => {
+    getRequestMock.mockReset();
+  });
+
+  it("calls promotional-items with restaurant, branch, locale, and limit params", async () => {
+    getRequestMock.mockResolvedValue({
+      data: [
+        {
+          id: "item-1",
+          name: "Promo Pizza",
+          basePrice: 12,
+          discountedBasePrice: 9,
+        },
+      ],
+    });
+
+    const items = await getPromotionalItems({
+      restaurantId: "restaurant-1",
+      branchId: "branch-1",
+      locale: "en",
+      limit: 8,
+    });
+
+    expect(getRequestMock).toHaveBeenCalledWith(
+      "/customer-app/promotional-items?restaurantId=restaurant-1&branchId=branch-1&locale=en&limit=8"
+    );
+    expect(items[0]?.id).toBe("item-1");
   });
 });

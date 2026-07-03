@@ -1,6 +1,11 @@
 import { readAuthSession, saveAuthSession } from "@/lib/auth";
+import { formatDisplayAddress } from "@/lib/address-display";
+import {
+  orderTypeToCheckoutType,
+  setStoredCheckoutTypePreference,
+} from "@/lib/checkout-type-preference";
 import type { AuthContextValue, AuthUser } from "@/types/auth";
-import type { BranchOrderType, BranchTemporaryClosure, NearbyBranch } from "@/types/branches";
+import type { BranchOrderType, BranchScheduleTimings, BranchTemporaryClosure, NearbyBranch } from "@/types/branches";
 import type { BranchApiResponse, BranchRecord } from "@/types/branch-selector";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -31,6 +36,8 @@ const normalizeBranchAddress = (value: unknown): BranchRecord["address"] | undef
   return {
     id: getString(value.id),
     street: getNullableString(value.street),
+    shopNumber: getNullableString(value.shopNumber),
+    houseNumber: getNullableString(value.houseNumber),
     area: getNullableString(value.area),
     city: getNullableString(value.city),
     state: getNullableString(value.state),
@@ -48,6 +55,7 @@ const normalizeOpeningHours = (value: unknown): NonNullable<BranchRecord["settin
 
   return value.filter(isRecord).map((entry) => ({
     dayOfWeek: getString(entry.dayOfWeek),
+    date: getString(entry.date),
     isClosed: getBoolean(entry.isClosed),
     openTime: getString(entry.openTime),
     closeTime: getString(entry.closeTime),
@@ -60,6 +68,25 @@ const normalizeOpeningHours = (value: unknown): NonNullable<BranchRecord["settin
       : undefined,
     note: getString(entry.note),
   }));
+};
+
+const normalizeScheduleTimings = (value: unknown): BranchScheduleTimings | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    ...value,
+    deliveryIntervalMinutes: typeof value.deliveryIntervalMinutes === "number" || typeof value.deliveryIntervalMinutes === "string" || value.deliveryIntervalMinutes === null
+      ? value.deliveryIntervalMinutes
+      : undefined,
+    pickupIntervalMinutes: typeof value.pickupIntervalMinutes === "number" || typeof value.pickupIntervalMinutes === "string" || value.pickupIntervalMinutes === null
+      ? value.pickupIntervalMinutes
+      : undefined,
+    openingHours: normalizeOpeningHours(value.openingHours),
+    deliveryHours: normalizeOpeningHours(value.deliveryHours),
+    holidayOpeningHours: normalizeOpeningHours(value.holidayOpeningHours),
+  };
 };
 
 const normalizeTemporaryClosure = (value: unknown): BranchTemporaryClosure | null => {
@@ -89,8 +116,12 @@ const normalizeBranchSettings = (value: unknown): BranchRecord["settings"] | und
           .filter((orderType): orderType is BranchOrderType => Boolean(orderType))
       : undefined,
     deliveryConfig: value.deliveryConfig,
+    scheduleTimings: normalizeScheduleTimings(value.scheduleTimings),
     temporaryClosure: normalizeTemporaryClosure(value.temporaryClosure),
+    tableReservationsEnabled: getBoolean(value.tableReservationsEnabled),
     openingHours: normalizeOpeningHours(value.openingHours),
+    deliveryHours: normalizeOpeningHours(value.deliveryHours),
+    holidayOpeningHours: normalizeOpeningHours(value.holidayOpeningHours),
   };
 };
 
@@ -123,13 +154,26 @@ export const normalizeBranch = (value: unknown): BranchRecord | null => {
     return null;
   }
 
+  const rootScheduleTimings = normalizeScheduleTimings(value.scheduleTimings);
+  const settings = normalizeBranchSettings(value.settings);
+
   return {
     id,
     name,
     isActive: getBoolean(value.isActive),
     restaurantId: getString(value.restaurantId) ?? null,
     address: normalizeBranchAddress(value.address),
-    settings: normalizeBranchSettings(value.settings),
+    settings: {
+      ...settings,
+      openingHours: settings?.openingHours ?? rootScheduleTimings?.openingHours,
+      deliveryHours: settings?.deliveryHours ?? rootScheduleTimings?.deliveryHours,
+      holidayOpeningHours:
+        settings?.holidayOpeningHours ?? rootScheduleTimings?.holidayOpeningHours,
+      scheduleTimings: settings?.scheduleTimings ?? rootScheduleTimings,
+      tableReservationsEnabled:
+        settings?.tableReservationsEnabled ?? getBoolean(value.tableReservationsEnabled),
+    },
+    scheduleTimings: rootScheduleTimings ?? settings?.scheduleTimings ?? null,
     distanceKm: getNullableNumber(value.distanceKm),
     availability: normalizeAvailability(value.availability),
   };
@@ -192,6 +236,10 @@ export const normalizeBranchApiResponse = (response: unknown): BranchApiResponse
 export const getActiveBranches = (response: unknown) =>
   normalizeBranchList(response).filter((branch) => branch.isActive !== false);
 
+export const getSelectedOrderType = (
+  user?: Pick<AuthUser, "branch" | "selectedOrderType"> | null
+) => user?.selectedOrderType ?? user?.branch?.selectedOrderType ?? null;
+
 export function persistSelectedBranch(
   branch: BranchRecord,
   setUser?: AuthContextValue["setUser"],
@@ -201,6 +249,11 @@ export function persistSelectedBranch(
   const selectedBranch = options.orderType
     ? { ...branch, selectedOrderType: options.orderType }
     : branch;
+  const checkoutType = orderTypeToCheckoutType(options.orderType);
+
+  if (checkoutType) {
+    setStoredCheckoutTypePreference(checkoutType);
+  }
 
   if (auth?.user) {
     saveAuthSession({
@@ -241,18 +294,9 @@ export const branchSupportsDelivery = (branch: Pick<BranchRecord, "settings"> | 
   branch.settings?.allowedOrderTypes?.includes("DELIVERY") ?? false;
 
 export function formatBranchAddress(branch: Pick<BranchRecord, "address"> | NearbyBranch) {
-  return (
-    [
-      branch.address?.street,
-      branch.address?.area,
-      branch.address?.city,
-      branch.address?.state,
-      branch.address?.country,
-      branch.address?.postalCode,
-    ]
-      .filter(Boolean)
-      .join(", ") || "Branch location available"
-  );
+  return formatDisplayAddress(branch.address, {
+    fallback: "Branch location available",
+  });
 }
 
 export function formatBranchDistance(distanceKm?: number | null) {
@@ -273,6 +317,10 @@ export function isBranchCurrentlyAvailable(branch: Pick<BranchRecord, "availabil
   }
 
   if (branch.availability?.isAvailable === false) {
+    return false;
+  }
+
+  if (branch.availability?.isTemporarilyClosed === true) {
     return false;
   }
 

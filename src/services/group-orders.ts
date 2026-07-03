@@ -65,13 +65,22 @@ export const searchGroupOrdersByInviteCode = async ({
   };
 };
 
+export const normalizeCreateGroupOrderPayload = (
+  payload: CreateGroupOrderPayload & { restaurantMenuId?: unknown }
+): CreateGroupOrderPayload => {
+  const normalizedPayload = { ...payload };
+  delete normalizedPayload.restaurantMenuId;
+
+  return normalizedPayload;
+};
+
 export const createGroupOrder = ({
   payload,
   token,
 }: {
-  payload: CreateGroupOrderPayload;
+  payload: CreateGroupOrderPayload & { restaurantMenuId?: unknown };
   token?: string | null;
-}) => postGroupOrders("/v1/group-orders", payload, token);
+}) => postGroupOrders("/v1/group-orders", normalizeCreateGroupOrderPayload(payload), token);
 
 export const joinGroupOrder = ({
   inviteCode,
@@ -128,3 +137,13 @@ export const deleteGroupOrderItem = ({
   itemId: string | number;
   token?: string | null;
 }) => deleteGroupOrders(`/v1/group-orders/${orderId}/items/${itemId}`, token);
+
+export const updateMyGroupOrderParticipantStatus = ({
+  orderId,
+  status,
+  token,
+}: {
+  orderId: string | number;
+  status: "ACTIVE" | "COMPLETED";
+  token?: string | null;
+}) => patchGroupOrders(`/v1/group-orders/${orderId}/participants/me/status`, { status }, token);

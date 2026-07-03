@@ -8,29 +8,105 @@ import { useCallback, useEffect, useState } from "react";
 import { OrderCartSidebar } from "@/components/pages/Items/components/signature-selection/OrderCartSidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { CART_CHANGED_EVENT } from "@/lib/cart-events";
+import { useHome } from "@/hooks/useHome";
+import { getSelectedOrderType } from "@/lib/branch-selector";
+import { CART_CHANGED_EVENT, type CartChangedDetail } from "@/lib/cart-events";
+import {
+  getStoredCheckoutTypePreference,
+  type CheckoutTypePreference,
+} from "@/lib/checkout-type-preference";
+import { resolveHomeBranchId, resolveHomeRestaurantId } from "@/lib/home";
+import { resolveCustomerCurrency } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { fetchCustomerCart } from "@/services/cart";
 
 const HIDDEN_CART_PATHS = ["/checkout", "/menu"];
 
 export function SiteFloatingCart() {
   const pathname = usePathname();
   const t = useTranslations("cart");
-  const { user, loading } = useAuth();
+  const { user, token, loading, restaurantId } = useAuth();
   const [cartRefreshKey, setCartRefreshKey] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  const [hasCartItems, setHasCartItems] = useState(false);
+  const [storedCheckoutType, setStoredCheckoutType] =
+    useState<CheckoutTypePreference | null>(null);
 
   const isHiddenRoute = HIDDEN_CART_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
-  const checkoutType = user?.selectedOrderType === "TAKEAWAY" ? "pickup" : "delivery";
+  const hideOnMobileHome = pathname === "/";
+  const customerId = user?.id;
+  const homeRestaurantId = resolveHomeRestaurantId(user, restaurantId);
+  const branchId = resolveHomeBranchId(user);
+  const homeQuery = useHome(
+    homeRestaurantId,
+    branchId,
+    Boolean(!loading && homeRestaurantId && branchId)
+  );
+  const currency = resolveCustomerCurrency({
+    configCurrency: homeQuery.data?.data.config?.currency,
+    restaurant: homeQuery.data?.data.restaurant,
+  });
+  const userCheckoutType = getSelectedOrderType(user) === "TAKEAWAY" ? "pickup" : "delivery";
+  const checkoutType = storedCheckoutType ?? userCheckoutType;
 
   const refreshCart = useCallback(() => {
     setCartRefreshKey((current) => current + 1);
   }, []);
 
+  const refreshCartPresence = useCallback(
+    async ({ openWhenPresent = false }: { openWhenPresent?: boolean } = {}) => {
+      if (loading || !customerId) {
+        setHasCartItems(false);
+        setIsOpen(false);
+        return;
+      }
+
+      try {
+        const { items } = await fetchCustomerCart({ customerId, token });
+        const nextHasCartItems = items.length > 0;
+
+        setHasCartItems(nextHasCartItems);
+
+        if (nextHasCartItems) {
+          if (openWhenPresent) {
+            setIsOpen(true);
+          }
+          return;
+        }
+
+        setIsOpen(false);
+      } catch {
+        setHasCartItems(false);
+        setIsOpen(false);
+      }
+    },
+    [customerId, loading, token]
+  );
+
   useEffect(() => {
-    const handleCartChanged = () => {
+    void refreshCartPresence();
+  }, [refreshCartPresence]);
+
+  useEffect(() => {
+    setStoredCheckoutType(getStoredCheckoutTypePreference());
+
+    const handleCartChanged = (event: Event) => {
+      const detail = event instanceof CustomEvent
+        ? (event.detail as CartChangedDetail | undefined)
+        : undefined;
+
+      setStoredCheckoutType(getStoredCheckoutTypePreference());
       refreshCart();
-      setIsOpen(true);
+
+      if (typeof detail?.itemCount === "number") {
+        const nextHasCartItems = detail.itemCount > 0;
+
+        setHasCartItems(nextHasCartItems);
+        setIsOpen(nextHasCartItems);
+        return;
+      }
+
+      void refreshCartPresence({ openWhenPresent: true });
     };
 
     window.addEventListener(CART_CHANGED_EVENT, handleCartChanged);
@@ -38,16 +114,17 @@ export function SiteFloatingCart() {
     return () => {
       window.removeEventListener(CART_CHANGED_EVENT, handleCartChanged);
     };
-  }, [refreshCart]);
+  }, [refreshCart, refreshCartPresence]);
 
-  if (loading || !user?.id || isHiddenRoute) {
+  if (loading || !customerId || isHiddenRoute || !hasCartItems) {
     return null;
   }
 
   return (
     <div
       className={cn(
-        "fixed bottom-5 right-4 z-40 flex items-end justify-end sm:bottom-6 sm:right-6 lg:bottom-8 lg:right-8"
+        "fixed bottom-5 right-4 z-40 flex items-end justify-end sm:bottom-6 sm:right-6 lg:bottom-8 lg:right-8",
+        hideOnMobileHome && "hidden md:flex"
       )}
     >
       {isOpen ? (
@@ -63,11 +140,12 @@ export function SiteFloatingCart() {
           </Button>
 
           <OrderCartSidebar
-            customerId={user.id}
+            customerId={customerId}
             cartRefreshKey={cartRefreshKey}
             onCartRefresh={refreshCart}
             presentation="floating"
             checkoutType={checkoutType}
+            currency={currency}
           />
         </div>
       ) : (
