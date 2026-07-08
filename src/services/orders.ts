@@ -21,6 +21,8 @@ export type OrderMenuItem = {
 
 export type OrderItem = {
   id: string | number;
+  type?: string | null;
+  itemType?: "DEAL" | "ITEM" | string | null;
   menuItemId?: string | number | null;
   menuItemName?: string | null;
   name?: string | null;
@@ -38,11 +40,19 @@ export type OrderItem = {
   note?: string | null;
   snapshotModifiers?: unknown[];
   snapshotSections?: unknown[];
+  sections?: unknown[];
+  splitPizza?: unknown;
+  selectedSections?: unknown[];
   modifiers?: OrderModifierInput[];
   modifierSelections?: OrderModifierSelectionInput[];
   selectedModifiers?: OrderModifierInput[];
   includedItems?: OrderItem[];
   menuItem?: OrderMenuItem | null;
+};
+
+export type OrderDisplayItem = OrderItem & {
+  type?: "DEAL" | "ITEM" | string | null;
+  items?: OrderItem[];
 };
 
 export type OrderModifierInput = {
@@ -140,6 +150,12 @@ export type OrderPricing = {
   breakdown?: OrderPricingBreakdownLine[];
 };
 
+export type OrderCoupon = {
+  id?: string | number | null;
+  code?: string | null;
+  title?: string | null;
+};
+
 export type OrderPayment = {
   selectedMethod?: string | null;
   status?: string | null;
@@ -165,6 +181,11 @@ export type Order = {
   statusDescription?: string | null;
   paymentStatus?: string | null;
   paymentMethod?: string | null;
+  availablePaymentMethods?: string[];
+  paymentOptions?: {
+    selected?: string | null;
+    available?: string[];
+  } | null;
   orderTime?: string | null;
   isScheduled?: boolean | null;
   scheduledFor?: string | null;
@@ -178,8 +199,12 @@ export type Order = {
   discountAmount?: number | string | null;
   payableAmount?: number | string | null;
   totalAmount?: number | string | null;
+  itemCount?: number | string | null;
+  couponId?: string | number | null;
+  coupon?: OrderCoupon | null;
   items?: OrderItem[];
   itemsPreview?: OrderItem[];
+  displayItems?: OrderDisplayItem[];
   restaurant?: OrderRestaurant | null;
   branch?: OrderBranch | null;
   deliveryAddress?: OrderDeliveryAddress | null;
@@ -219,6 +244,9 @@ export type ReorderPayload = {
   branchId: string | number;
   modifiers?: Array<{ modifierId: string; quantity: number }>;
   modifierSelections?: CartModifierSelectionInput[];
+  sections?: unknown[];
+  splitPizza?: unknown;
+  selectedSections?: unknown[];
   note?: string;
 };
 
@@ -364,6 +392,8 @@ const normalizeOrderItem = (value: unknown): OrderItem | null => {
 
   return {
     id,
+    type: getString(record.type) || null,
+    itemType: getString(record.itemType || record.type) || null,
     menuItemId: getString(record.menuItemId || menuItem?.id) || null,
     menuItemName: menuItemName || null,
     name: getString(record.name) || null,
@@ -381,6 +411,9 @@ const normalizeOrderItem = (value: unknown): OrderItem | null => {
     note: getString(record.note) || null,
     snapshotModifiers: Array.isArray(record.snapshotModifiers) ? record.snapshotModifiers : [],
     snapshotSections: Array.isArray(record.snapshotSections) ? record.snapshotSections : [],
+    sections: Array.isArray(record.sections) ? record.sections : [],
+    splitPizza: record.splitPizza,
+    selectedSections: Array.isArray(record.selectedSections) ? record.selectedSections : [],
     modifiers: Array.isArray(record.modifiers) ? record.modifiers as OrderModifierInput[] : [],
     modifierSelections: Array.isArray(record.modifierSelections)
       ? record.modifierSelections as OrderModifierSelectionInput[]
@@ -407,6 +440,31 @@ const normalizeOrderItem = (value: unknown): OrderItem | null => {
 const normalizeOrderItems = (value: unknown): OrderItem[] =>
   Array.isArray(value)
     ? value.map(normalizeOrderItem).filter((item): item is OrderItem => Boolean(item))
+    : [];
+
+const normalizeOrderDisplayItem = (value: unknown): OrderDisplayItem | null => {
+  const record = getRecord(value);
+
+  if (!record) return null;
+
+  const normalizedItem = normalizeOrderItem({
+    ...record,
+    id: record.id || record.dealId || record.menuItemId || record.menuItemName || record.type,
+    itemType: record.itemType || record.type,
+  });
+
+  if (!normalizedItem) return null;
+
+  return {
+    ...normalizedItem,
+    type: getString(record.type || record.itemType) || normalizedItem.itemType || null,
+    items: normalizeOrderItems(record.items),
+  };
+};
+
+const normalizeOrderDisplayItems = (value: unknown): OrderDisplayItem[] =>
+  Array.isArray(value)
+    ? value.map(normalizeOrderDisplayItem).filter((item): item is OrderDisplayItem => Boolean(item))
     : [];
 
 const normalizePricingBreakdown = (value: unknown): OrderPricingBreakdownLine[] =>
@@ -466,12 +524,16 @@ const normalizeOrderPayment = (value: unknown, fallback: Record<string, unknown>
   }
 
   return {
-    selectedMethod: getString(record?.selectedMethod || fallback.paymentMethod) || null,
+    selectedMethod: getString(record?.selectedMethod || getRecord(fallback.paymentOptions)?.selected || fallback.paymentMethod) || null,
     status: getString(record?.status || fallback.paymentStatus) || null,
     statusLabel: getString(record?.statusLabel) || null,
     availableMethods: Array.isArray(record?.availableMethods)
       ? record.availableMethods.map(getString).filter(Boolean)
-      : [],
+      : Array.isArray(getRecord(fallback.paymentOptions)?.available)
+        ? (getRecord(fallback.paymentOptions)?.available as unknown[]).map(getString).filter(Boolean)
+        : Array.isArray(fallback.availablePaymentMethods)
+          ? fallback.availablePaymentMethods.map(getString).filter(Boolean)
+          : [],
     canChangePaymentMethod: getBoolean(record?.canChangePaymentMethod),
     paidAt: getString(record?.paidAt || fallback.paidAt) || null,
     transactions,
@@ -483,6 +545,28 @@ const normalizeOrderPayment = (value: unknown, fallback: Record<string, unknown>
         refundTransactions: normalizeTransactions(refund.refundTransactions),
       }
       : null,
+  };
+};
+
+const normalizeOrderCoupon = (value: unknown): OrderCoupon | null => {
+  const record = getRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  const id = getString(record.id);
+  const code = getString(record.code);
+  const title = getString(record.title || record.name);
+
+  if (!id && !code && !title) {
+    return null;
+  }
+
+  return {
+    id: id || null,
+    code: code || null,
+    title: title || null,
   };
 };
 
@@ -504,6 +588,7 @@ export const normalizeOrderDetail = (value: unknown): Order | null => {
   const fulfillment = getRecord(record.fulfillment);
   const items = normalizeOrderItems(record.items);
   const itemsPreview = normalizeOrderItems(record.itemsPreview);
+  const displayItems = normalizeOrderDisplayItems(record.displayItems);
   const deliveryAddress = normalizeDeliveryAddress(fulfillment?.deliveryAddress ?? record.deliveryAddress);
   const transactions = payment?.transactions?.length
     ? payment.transactions
@@ -519,6 +604,10 @@ export const normalizeOrderDetail = (value: unknown): Order | null => {
     statusDescription: getString(record.statusDescription) || null,
     paymentStatus: getString(payment?.status || record.paymentStatus) || null,
     paymentMethod: getString(payment?.selectedMethod || record.paymentMethod) || null,
+    availablePaymentMethods: Array.isArray(record.availablePaymentMethods)
+      ? record.availablePaymentMethods.map(getString).filter(Boolean)
+      : [],
+    paymentOptions: getRecord(record.paymentOptions) as Order["paymentOptions"],
     orderTime: getString(record.orderTime) || null,
     isScheduled: getBoolean(record.isScheduled),
     scheduledFor: getString(record.scheduledFor) || null,
@@ -532,8 +621,12 @@ export const normalizeOrderDetail = (value: unknown): Order | null => {
     discountAmount: pricing?.discountAmount ?? getAmount(record.discountAmount),
     payableAmount: pricing?.payableAmount ?? getAmount(record.payableAmount),
     totalAmount: pricing?.totalAmount ?? getAmount(record.totalAmount),
+    itemCount: getAmount(record.itemCount),
+    couponId: getString(record.couponId) || null,
+    coupon: normalizeOrderCoupon(record.coupon),
     items,
     itemsPreview,
+    displayItems,
     restaurant: getRecord(record.restaurant) as OrderRestaurant | null,
     branch: getRecord(record.branch) as OrderBranch | null,
     deliveryAddress,
@@ -671,6 +764,10 @@ const buildItemReorderPayload = ({
     ...(item.note ? { note: item.note } : { note: "" }),
     ...(modifierSelections.length > 0 ? { modifierSelections } : {}),
     ...(modifiers.length > 0 ? { modifiers } : {}),
+    ...(item.snapshotSections?.length ? { sections: item.snapshotSections } : {}),
+    ...(item.sections?.length ? { sections: item.sections } : {}),
+    ...(item.selectedSections?.length ? { selectedSections: item.selectedSections } : {}),
+    ...(item.splitPizza ? { splitPizza: item.splitPizza } : {}),
   };
 };
 

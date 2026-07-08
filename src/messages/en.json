@@ -47,6 +47,7 @@
     "items": "Items",
     "menus": "Menus",
     "groupOrder": "Group order",
+    "activeGroupOrder": "Active lobby",
     "reservations": "Reservations",
     "searchFood": "Search Food",
     "reserveTable": "Reserve a Table",
@@ -184,6 +185,8 @@
       "offersDescription": "Unlock branch deals and menu promos whenever they are live.",
       "orderPanelEyebrow": "Start your order",
       "orderPanelTitle": "Delivery or pickup",
+      "singleBranchPanelTitle": "Ready to order?",
+      "singleBranchSchedulePanelTitle": "Order ahead from this branch",
       "deliveryPanelTitle": "Delivery",
       "pickupPanelTitle": "Pickup",
       "scheduleDeliveryPanelTitle": "Schedule Delivery",
@@ -310,7 +313,7 @@
     },
     "giftCards": {
       "label": "Gift Cards",
-      "title": "Send a meal they will actually enjoy",
+      "title": "Title",
       "description": "Choose a preset gift card or set your own amount. Guests can pay securely by card without using wallet balance.",
       "instantCheckout": "Secure Stripe checkout",
       "emailDelivery": "Sent after payment confirmation",
@@ -327,7 +330,6 @@
       "buyerEmailPlaceholder": "name@example.com",
       "buyerName": "Buyer name",
       "buyerNamePlaceholder": "Your name",
-      "title": "Title",
       "titlePlaceholder": "Birthday Gift Card",
       "message": "Message",
       "messagePlaceholder": "Add a note for the recipient",
@@ -1006,8 +1008,11 @@
       "insufficientLoyaltyPoints": "Insufficient loyalty points",
       "paymentFailed": "Payment failed",
       "paymentSuccessful": "Payment successful",
-      "paymentNotCompleted": "Payment was not completed"
-    }
+      "paymentNotCompleted": "Payment was not completed",
+      "paymentPending": "Payment pending. You can continue payment from your order details.",
+      "paymentSuccessfulPendingWebhook": "Payment confirmed. We’ll update the order as soon as Stripe confirms it."
+    },
+    "paymentPendingDescription": "Complete the card payment so Stripe can confirm the order. You can close this and continue payment later from your order details."
   },
   "orders": {
     "orderDetails": "Order Details",
@@ -1020,6 +1025,9 @@
     "estimatedReady": "Estimated ready",
     "estimatedDelivery": "Estimated delivery",
     "itemFallback": "item",
+    "deal": "Deal",
+    "dealCode": "Deal code",
+    "dealIncludes": "Includes",
     "quantityShort": "Qty",
     "modifiers": "Add-ons",
     "lineTotal": "Line total",
@@ -1040,10 +1048,19 @@
     "refundedAmount": "Refunded amount",
     "paymentDetails": "Payment Details",
     "paymentDescription": "Payment information for this order.",
-    "paymentPendingDescription": "Your order is placed, but payment is still pending. You can complete it now or come back later.",
+    "paymentPendingDescription": "Payment is still pending.",
     "paymentMethod": "Payment method",
     "amountDue": "Amount due",
     "paymentReference": "Payment reference",
+    "switchPaymentMethod": "Switch payment method",
+    "switchPaymentMethodDescription": "If online payment is not working, choose another available method to complete this order.",
+    "paymentMethods": {
+      "cod": "Cash on Delivery",
+      "wallet": "Wallet",
+      "stripe": "Online card",
+      "paypal": "PayPal",
+      "cardOnDelivery": "Card on delivery"
+    },
     "scheduledFor": "Scheduled for",
     "deliveryAddress": "Delivery address",
     "continuePayment": "Continue Payment",
@@ -1077,7 +1094,9 @@
     "reviewUnavailableTitle": "Review not available yet",
     "reviewUnavailableDescription": "You can review this order once it has been completed.",
     "cancel": "Cancel",
-    "loadingReviewsPage": "Loading reviews page..."
+    "loadingReviewsPage": "Loading reviews page...",
+    "stripePaymentPendingDescription": "This Stripe order is not placed yet. Complete payment, then the order status will update automatically after Stripe confirmation.",
+    "paymentPendingOverviewDescription": "Payment pending — this order will be placed only after successful Stripe confirmation."
   },
   "ordersHistory": {
     "title": "Your Order History",
@@ -1491,12 +1510,15 @@
     "successNotice": {
       "title": "Order placed successfully",
       "description": "We have received your order. You can track the latest status below.",
-      "paymentPendingTitle": "Order placed, payment pending",
-      "paymentPendingDescription": "Your order has been created. Complete the Stripe payment from the payment panel to finish checkout."
+      "paymentPendingTitle": "Payment pending",
+      "paymentPendingDescription": "This Stripe order is not placed yet. Complete online payment and we will update the status automatically after confirmation."
     },
     "completePayment": "Complete payment",
     "completePaymentDescription": "This will retry the pending Stripe payment attempt for the same order.",
-    "closePaymentPopup": "Close payment popup"
+    "closePaymentPopup": "Close payment popup",
+    "paymentPendingHeading": "Complete your payment",
+    "paymentPendingStatus": "Payment pending",
+    "paymentPendingTrackingDescription": "Order tracking starts after Stripe confirms payment and the order is marked placed."
   },
   "notifications": {
     "title": "Notifications",
@@ -1535,7 +1557,15 @@
       "checkoutText": "One shared order",
       "heroImageAlt": "Friends sharing a meal",
       "experienceTitle": "Group Order Experience",
-      "experienceDescription": "Perfect for office lunches, family dinners, and friends."
+      "experienceDescription": "Perfect for office lunches, family dinners, and friends.",
+      "joinWithCodeTitle": "Join with invite code",
+      "joinWithCodeDescription": "Already have a group order code? Enter it here to join and start adding your items.",
+      "joinCodePlaceholder": "ENTER CODE",
+      "joinCodeRequired": "Please enter an invite code",
+      "joinGroupOrder": "Join Group Order",
+      "joining": "Joining...",
+      "joined": "Joined group order",
+      "failedJoin": "Failed to join group order"
     },
     "howItWorks": {
       "eyebrow": "The Process",
@@ -1580,6 +1610,10 @@
       "scheduleSubtitle": "Current date and time are selected by default. You can edit them before inviting your group.",
       "editSchedule": "Edit",
       "resetToNow": "Use current time",
+      "instantPickupUnavailable": "Pickup now is currently unavailable. Please schedule a later time.",
+      "instantDeliveryUnavailable": "Delivery now is currently unavailable. Please schedule a later time.",
+      "scheduledPickupUnavailable": "Pickup is not available at the selected time.",
+      "scheduledDeliveryUnavailable": "Delivery is not available at the selected time.",
       "hostNote": "Host Note (Optional)",
       "hostNotePlaceholder": "Any instructions for your group...",
       "creating": "Creating...",
@@ -1619,13 +1653,33 @@
       "notFoundTitle": "Group order not found",
       "notFoundDescription": "This group order may have expired, been checked out, or the invite code is no longer valid.",
       "goToGroupOrder": "Go to Group Order",
+      "joinWithCodeTitle": "Join with invite code",
+      "joinCodePlaceholder": "ENTER CODE",
+      "joinCodeRequired": "Please enter an invite code",
+      "joinGroupOrder": "Join",
+      "joining": "Joining...",
+      "joined": "Joined group order",
+      "failedJoin": "Failed to join group order",
       "refresh": "Refresh",
       "refreshing": "Refreshing...",
       "header": {
         "fallbackTitle": "Lobby",
         "description": "Everyone's picks for tonight's feast.",
         "groupStatus": "Group Status",
-        "readyCount": "{ready}/{total} Ready"
+        "readyCount": "{ready}/{total} Ready",
+        "orderTiming": "Order timing",
+        "instantOrder": "ASAP / instant order",
+        "scheduledFor": "Scheduled for {date}",
+        "expiresAt": "Expires {date}",
+        "orderType": "Order type",
+        "orderTypes": {
+          "delivery": "Delivery",
+          "takeaway": "Pickup",
+          "dineIn": "Dine in",
+          "fallback": "Group order"
+        },
+        "branch": "Branch",
+        "branchFallback": "Selected branch"
       },
       "invite": {
         "linkCopied": "Link copied",
@@ -1633,7 +1687,9 @@
         "description": "Send this link to anyone you want to join the feast.",
         "generating": "Generating...",
         "copied": "Copied",
-        "copy": "Copy"
+        "copy": "Copy",
+        "copyCode": "Copy code",
+        "codeCopied": "Code copied"
       },
       "userCard": {
         "hostSuffix": "(Host)",
@@ -1657,12 +1713,13 @@
         "platformFee": "Service charge",
         "onlyHostCanFinalize": "Only host can finalize order",
         "finalizeCheckout": "Finalize and Checkout",
+        "instantCheckoutUnavailable": "This branch is not available for immediate checkout right now. Please schedule the group order for an available time.",
         "addRestaurantNote": "Add a Note for Restaurant",
         "hostFinalizeNotice": "Orders will only be processed once the host clicks finalize.",
         "editNotice": "Orders will only be processed once the host clicks finalize. You can still edit your individual items.",
-        "offerImageAlt": "Group order offer",
-        "offer": "OFFER",
-        "offerText": "Get 20% off your next group order!",
+        "helpfulText": "Keep this lobby open to track everyone’s selections. When everyone is ready, the host can finalize the group order.",
+        "refresh": "Refresh order summary",
+        "refreshing": "Refreshing order summary...",
         "noteTitle": "Add Note",
         "noteDescription": "Add any special instructions for your order.",
         "notePlaceholder": "Allergies, instructions, etc.",
@@ -1672,9 +1729,22 @@
         "paymentMethod": "Payment Method",
         "paymentMethods": {
           "COD": "Cash on delivery",
+          "CARD_ON_DELIVERY": "Card on delivery",
           "PAYPAL": "PayPal",
-          "STRIPE": "Online card"
+          "STRIPE": "Online card",
+          "WALLET": "Wallet"
         },
+        "tipLabel": "Add a tip",
+        "tipHelper": "Optional tip for the restaurant team.",
+        "tipRemove": "Remove",
+        "loyaltyTitle": "Redeem points",
+        "loyaltyLoading": "Loading your points...",
+        "loyaltyAvailable": "{points} points available. Minimum redeem: {minimum} points.",
+        "loyaltyUnavailable": "Loyalty points are unavailable right now.",
+        "loyaltyPlaceholder": "Points",
+        "loyaltyClear": "Clear",
+        "loyaltyEstimatedDiscount": "Estimated discount: {amount}",
+        "loyaltyRequirements": "Enter available points above the minimum to redeem.",
         "couponCode": "Coupon Code",
         "couponPlaceholder": "Enter coupon",
         "confirmOrder": "Confirm Order",
@@ -1701,8 +1771,30 @@
       "notifiedMembers": "Notified Members",
       "trackingShared": "ORDER TRACKING SHARED",
       "activeParticipant": "Active participant",
+      "orderId": "Final order ID",
+      "orderTiming": "Order timing",
+      "payment": "Payment",
+      "orderType": "Order type",
+      "itemsTitle": "Items ordered",
+      "itemFallback": "Menu item",
+      "quantity": "Qty {count}",
+      "addonFallback": "Add-on",
+      "noItems": "No item details returned.",
+      "totalsTitle": "Totals breakdown",
+      "subtotal": "Subtotal",
+      "tax": "Tax",
+      "deliveryFee": "Delivery fee",
+      "discount": "Discount",
+      "totalBeforeDiscount": "Total before discount",
+      "payable": "Payable",
       "trackOrder": "Track Order",
-      "backHome": "Back to Home"
+      "backHome": "Back to Home",
+      "instantOrder": "Instant order",
+      "variation": "Variation: {variation}",
+      "noParticipants": "No participant details returned.",
+      "couponTitle": "Coupon / discount",
+      "discountApplied": "Discount applied",
+      "total": "Total"
     }
   },
   "branchSelector": {
@@ -1867,5 +1959,35 @@
   },
   "errors": {
     "somethingWentWrong": "Something went wrong"
+  },
+  "cuisines": {
+    "eyebrow": "Cuisines",
+    "title": "Explore cuisines",
+    "description": "Browse by cuisine in a dedicated experience, separate from regular menu categories and item lists.",
+    "browseTitle": "All cuisines",
+    "browseDescription": "Search cuisines and open a dedicated cuisine page.",
+    "searchPlaceholder": "Search cuisines",
+    "empty": "No cuisines found",
+    "fallbackDescription": "Explore dishes curated for this cuisine.",
+    "detailDescription": "Explore dishes curated for this cuisine.",
+    "backToCuisines": "Back to cuisines",
+    "itemsEyebrow": "Cuisine items",
+    "itemsTitle": "Dishes in this cuisine",
+    "emptyItems": "No items found for this cuisine yet.",
+    "itemCount": "{count} items",
+    "exploreItems": "Explore items",
+    "viewCuisine": "View cuisine",
+    "menuItem": "Menu item",
+    "itemFallbackDescription": "Freshly prepared and ready to order.",
+    "badges": {
+      "cuisine": "Cuisine",
+      "promotion": "Special offer"
+    },
+    "home": {
+      "eyebrow": "Explore cuisines",
+      "title": "Order by cuisine",
+      "description": "A separate cuisine section, kept apart from regular categories and menu items.",
+      "viewAll": "View all cuisines"
+    }
   }
 }

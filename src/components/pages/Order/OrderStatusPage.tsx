@@ -24,6 +24,7 @@ import {
   type OrderProgressStepKey,
 } from "@/components/pages/Order/order-status-progress";
 import { resolveCustomerCurrency } from "@/lib/money";
+import { isPaymentPendingStripeOrder, isPendingOnlinePaymentOrder, isPlacedPaidOrder } from "@/components/pages/Order/payment-state";
 
 function OrderStatusContent() {
   const t = useTranslations("orderStatus");
@@ -41,6 +42,7 @@ function OrderStatusContent() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [continuingPayment, setContinuingPayment] = useState(false);
+  const [changingPaymentMethod, setChangingPaymentMethod] = useState<string | null>(null);
   const [stripePayment, setStripePayment] = useState({
     open: false,
     clientSecret: "",
@@ -93,60 +95,81 @@ function OrderStatusContent() {
     fetchOrder();
   }, [fetchOrder]);
 
-  const handleContinuePayment = async () => {
+  const handleChangePaymentMethod = async (paymentMethod: string) => {
     if (!order?.id) return;
 
+    const normalizedPaymentMethod = paymentMethod.toUpperCase();
+
     try {
-      setContinuingPayment(true);
+      setChangingPaymentMethod(normalizedPaymentMethod);
 
       const attempt = await createOrderPaymentAttempt({
         orderId: order.id,
         payload: {
-          paymentMethod: "STRIPE",
+          paymentMethod: normalizedPaymentMethod,
           currency: resolveCustomerCurrency({
             moneyCurrency: order.transactions?.find((transaction) => transaction.currency)?.currency,
           }),
-          note: "Retry order payment",
+          note: normalizedPaymentMethod === "STRIPE" ? "Retry order payment" : "Switch order payment method",
         },
       });
 
-      if (!attempt.response || attempt.response.success === false || !attempt.clientSecret || !attempt.publishableKey) {
+      if (!attempt.response || attempt.response.success === false) {
         toast.error(attempt.response?.message || checkoutT("toast.failedInitiatePayment"));
         return;
       }
 
-      setStripePayment({
-        open: true,
-        clientSecret: attempt.clientSecret,
-        publishableKey: attempt.publishableKey,
-        orderId: order.id,
-      });
+      if (normalizedPaymentMethod === "STRIPE") {
+        if (!attempt.clientSecret || !attempt.publishableKey) {
+          toast.error(attempt.response?.message || checkoutT("toast.failedInitiatePayment"));
+          return;
+        }
+
+        setStripePayment({
+          open: true,
+          clientSecret: attempt.clientSecret,
+          publishableKey: attempt.publishableKey,
+          orderId: order.id,
+        });
+        return;
+      }
+
+      toast.success(checkoutT("toast.paymentMethodUpdated"));
+      await fetchOrder();
     } catch {
       toast.error(errorT("somethingWentWrong"));
+    } finally {
+      setChangingPaymentMethod(null);
+    }
+  };
+
+  const handleContinuePayment = async () => {
+    setContinuingPayment(true);
+
+    try {
+      await handleChangePaymentMethod("STRIPE");
     } finally {
       setContinuingPayment(false);
     }
   };
 
   const handlePaymentSuccess = async () => {
-    toast.success(checkoutT("toast.paymentSuccessful"));
+    toast.success(checkoutT("toast.paymentSuccessfulPendingWebhook"));
     resetStripePayment();
     await fetchOrder();
   };
 
-  const paymentStatus = String(order?.paymentStatus || "").toUpperCase();
-  const paymentMethod = String(order?.paymentMethod || "").toUpperCase();
-  const showSuccessNotice = !loading && order?.id && isSuccessView;
-  const successNoticeTitle =
-    paymentStatus === "PENDING" && paymentMethod === "STRIPE"
-      ? t("successNotice.paymentPendingTitle")
-      : t("successNotice.title");
-  const successNoticeDescription =
-    paymentStatus === "PENDING" && paymentMethod === "STRIPE"
-      ? t("successNotice.paymentPendingDescription")
-      : t("successNotice.description");
+  const paymentPendingStripeOrder = isPaymentPendingStripeOrder(order);
+  const canSwitchPaymentMethod = isPendingOnlinePaymentOrder(order);
+  const placedPaidOrder = isPlacedPaidOrder(order);
+  const showSuccessNotice = !loading && order?.id && isSuccessView && placedPaidOrder;
+  const showPaymentPendingNotice = !loading && order?.id && paymentPendingStripeOrder;
+  const successNoticeTitle = t("successNotice.title");
+  const successNoticeDescription = t("successNotice.description");
 
-  const currentStep = getOrderProgressStep(order?.status, order?.orderType);
+  const currentStep = paymentPendingStripeOrder
+    ? 0
+    : getOrderProgressStep(order?.status, order?.orderType);
 
   const getOrderTypeLabel = (value?: string | null) => {
     switch (String(value || "").toUpperCase()) {
@@ -206,6 +229,17 @@ function OrderStatusContent() {
           </div>
         ) : null}
 
+        {showPaymentPendingNotice ? (
+          <div className="mb-6 rounded-2xl border border-amber-100 bg-amber-50 p-5 shadow-sm">
+            <p className="text-sm font-semibold text-amber-800">
+              {t("successNotice.paymentPendingTitle")}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-amber-700">
+              {t("successNotice.paymentPendingDescription")}
+            </p>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
 
           {/* LEFT */}
@@ -214,7 +248,7 @@ function OrderStatusContent() {
             {/* HEADER */}
             <div className="mb-[35px]">
               <h1 className="text-xl font-semibold text-gray-900 mb-[10px]">
-                {t("trackYourOrder")}
+                {paymentPendingStripeOrder ? t("paymentPendingHeading") : t("trackYourOrder")}
               </h1>
 
               <p className="text-sm text-gray-400">
@@ -229,7 +263,7 @@ function OrderStatusContent() {
             <div className="bg-white rounded-[10px] shadow-lg px-[61px] py-[35px] border border-gray-50">
 
               <h2 className="text-xl font-semibold mb-[36px]">
-                {t("orderStatus")}
+                {paymentPendingStripeOrder ? t("paymentPendingStatus") : t("orderStatus")}
               </h2>
 
               {/* LOADING */}
@@ -248,7 +282,14 @@ function OrderStatusContent() {
               )}
 
               {/* DATA */}
-              {!loading && (
+              {!loading && paymentPendingStripeOrder ? (
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5 text-sm leading-6 text-amber-800">
+                  <p className="font-semibold">{t("paymentPendingStatus")}</p>
+                  <p className="mt-1">{t("paymentPendingTrackingDescription")}</p>
+                </div>
+              ) : null}
+
+              {!loading && !paymentPendingStripeOrder && (
                 <div className="space-y-0">
                   {orderSteps.map((step, index) => (
                     <div key={step.id} className="relative flex gap-6 pb-10">
@@ -297,6 +338,9 @@ function OrderStatusContent() {
               order={order}
               onContinuePayment={handleContinuePayment}
               continuingPayment={continuingPayment}
+              onChangePaymentMethod={handleChangePaymentMethod}
+              changingPaymentMethod={changingPaymentMethod}
+              canSwitchPaymentMethod={canSwitchPaymentMethod}
             />
           </div>
 

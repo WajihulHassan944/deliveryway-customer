@@ -492,17 +492,18 @@ function CheckoutPageContent() {
     resetStripePayment();
 
     if (pendingOrderId) {
-      toast.success(t("toast.orderPlaced"));
-      await clearCart();
+      toast.info(t("toast.paymentPending"));
       router.push(`/order?orderId=${pendingOrderId}`);
     }
   };
 
-  const fetchCart = async () => {
+  const fetchCart = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!customerId) return;
 
     try {
-      setLoadingCart(true);
+      if (!silent) {
+        setLoadingCart(true);
+      }
 
       const res = await get(`/v1/cart?customerId=${customerId}`);
 
@@ -539,7 +540,9 @@ function CheckoutPageContent() {
         err instanceof Error ? err.message : t("toast.failedFetchCart")
       );
     } finally {
-      setLoadingCart(false);
+      if (!silent) {
+        setLoadingCart(false);
+      }
     }
   };
 
@@ -617,8 +620,7 @@ function CheckoutPageContent() {
   const [scheduledDeliveryValue, setScheduledDeliveryValue] = useState("");
   const [deliveryScheduleMode, setDeliveryScheduleMode] = useState<"now" | "schedule">("now");
   const [pickupScheduleMode, setPickupScheduleMode] = useState<"now" | "schedule">("now");
-  const checkoutPaymentMethod =
-    activeTab === "delivery" && paymentMethod === "COD" ? "STRIPE" : paymentMethod;
+  const checkoutPaymentMethod = paymentMethod;
   const deliveryAllowed = !checkoutBranch?.settings?.allowedOrderTypes?.length || branchSupportsDelivery(checkoutBranch);
   const pickupAllowed = !checkoutBranch?.settings?.allowedOrderTypes?.length || branchSupportsPickup(checkoutBranch);
 
@@ -818,7 +820,10 @@ function CheckoutPageContent() {
       dispatchCartChanged({
         itemCount: Math.max(0, getCartItemCount(previousCartItems) - currentQty + newQty),
       });
-      await fetchCart();
+
+      if (!syncCartFromResponse(res)) {
+        void fetchCart({ silent: true });
+      }
     } catch (err) {
       setCartItems(previousCartItems);
       reportBackendError(
@@ -1511,7 +1516,7 @@ function CheckoutPageContent() {
 
             <h2 className="mb-2 pr-10 text-lg font-semibold">{t("completePayment")}</h2>
             <p className="mb-5 text-sm leading-6 text-gray-500">
-              You can close this and continue payment later from your order details.
+              {t("paymentPendingDescription")}
             </p>
 
             <Elements
@@ -1526,7 +1531,7 @@ function CheckoutPageContent() {
 
                   window.dispatchEvent(new Event("loyalty-updated"));
                   await clearCart();
-                  router.push(`/order?success=true&orderId=${paidOrderId}`);
+                  router.push(`/order?orderId=${paidOrderId}`);
                 }}
               />
             </Elements>
@@ -1564,7 +1569,7 @@ const OrderStripeCheckout = ({
       }
 
       if (paymentIntent?.status === "succeeded") {
-        toast.success(t("toast.paymentSuccessful"));
+        toast.success(t("toast.paymentSuccessfulPendingWebhook"));
         onSuccess();
         return;
       }

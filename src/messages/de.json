@@ -47,6 +47,7 @@
     "items": "Artikel",
     "menus": "Menüs",
     "groupOrder": "Gruppenbestellung",
+    "activeGroupOrder": "Aktive Lobby",
     "reservations": "Reservierungen",
     "searchFood": "Essen suchen",
     "reserveTable": "Tisch reservieren",
@@ -184,6 +185,8 @@
       "offersDescription": "Nutzen Sie Filialangebote und Menüaktionen, sobald sie verfügbar sind.",
       "orderPanelEyebrow": "Bestellung starten",
       "orderPanelTitle": "Lieferung oder Abholung",
+      "singleBranchPanelTitle": "Bereit zum Bestellen?",
+      "singleBranchSchedulePanelTitle": "Bei dieser Filiale vorbestellen",
       "deliveryPanelTitle": "Lieferung",
       "pickupPanelTitle": "Abholung",
       "scheduleDeliveryPanelTitle": "Lieferung planen",
@@ -310,7 +313,7 @@
     },
     "giftCards": {
       "label": "Geschenkkarten",
-      "title": "Verschenken Sie eine Mahlzeit, die wirklich Freude macht",
+      "title": "Titel",
       "description": "Wählen Sie eine voreingestellte Geschenkkarte oder legen Sie einen eigenen Betrag fest. Gäste zahlen sicher per Karte, ohne Wallet-Guthaben zu nutzen.",
       "instantCheckout": "Sicherer Stripe-Checkout",
       "emailDelivery": "Versand nach Zahlungsbestätigung",
@@ -327,7 +330,6 @@
       "buyerEmailPlaceholder": "name@example.com",
       "buyerName": "Name des Käufers",
       "buyerNamePlaceholder": "Ihr Name",
-      "title": "Titel",
       "titlePlaceholder": "Geburtstags-Geschenkkarte",
       "message": "Nachricht",
       "messagePlaceholder": "Nachricht für den Empfänger hinzufügen",
@@ -1006,8 +1008,11 @@
       "insufficientLoyaltyPoints": "Nicht genügend Treuepunkte",
       "paymentFailed": "Zahlung fehlgeschlagen",
       "paymentSuccessful": "Zahlung erfolgreich",
-      "paymentNotCompleted": "Zahlung wurde nicht abgeschlossen"
-    }
+      "paymentNotCompleted": "Zahlung wurde nicht abgeschlossen",
+      "paymentPending": "Zahlung ausstehend. Du kannst die Zahlung über die Bestelldetails fortsetzen.",
+      "paymentSuccessfulPendingWebhook": "Zahlung bestätigt. Wir aktualisieren die Bestellung, sobald Stripe sie bestätigt."
+    },
+    "paymentPendingDescription": "Schließe die Kartenzahlung ab, damit Stripe die Bestellung bestätigen kann. Du kannst dieses Fenster schließen und später über die Bestelldetails fortfahren."
   },
   "orders": {
     "orderDetails": "Bestelldetails",
@@ -1020,6 +1025,9 @@
     "estimatedReady": "Voraussichtlich fertig",
     "estimatedDelivery": "Voraussichtliche Lieferung",
     "itemFallback": "Artikel",
+    "deal": "Angebot",
+    "dealCode": "Angebotscode",
+    "dealIncludes": "Enthält",
     "quantityShort": "Menge",
     "modifiers": "Extras",
     "lineTotal": "Zeilensumme",
@@ -1040,10 +1048,19 @@
     "refundedAmount": "Erstatteter Betrag",
     "paymentDetails": "Zahlungsdetails",
     "paymentDescription": "Zahlungsinformationen für diese Bestellung.",
-    "paymentPendingDescription": "Ihre Bestellung wurde aufgegeben, aber die Zahlung ist noch ausstehend. Sie können sie jetzt abschließen oder später fortsetzen.",
+    "paymentPendingDescription": "Die Zahlung ist noch ausstehend.",
     "paymentMethod": "Zahlungsmethode",
     "amountDue": "Fälliger Betrag",
     "paymentReference": "Zahlungsreferenz",
+    "switchPaymentMethod": "Zahlungsmethode wechseln",
+    "switchPaymentMethodDescription": "Wenn die Online-Zahlung nicht funktioniert, wählen Sie eine andere verfügbare Methode, um diese Bestellung abzuschließen.",
+    "paymentMethods": {
+      "cod": "Barzahlung bei Lieferung",
+      "wallet": "Wallet",
+      "stripe": "Online-Karte",
+      "paypal": "PayPal",
+      "cardOnDelivery": "Kartenzahlung bei Lieferung"
+    },
     "scheduledFor": "Geplant für",
     "deliveryAddress": "Lieferadresse",
     "continuePayment": "Zahlung fortsetzen",
@@ -1077,7 +1094,9 @@
     "reviewUnavailableTitle": "Bewertung noch nicht verfügbar",
     "reviewUnavailableDescription": "Sie können diese Bestellung bewerten, sobald sie abgeschlossen ist.",
     "cancel": "Abbrechen",
-    "loadingReviewsPage": "Bewertungsseite wird geladen..."
+    "loadingReviewsPage": "Bewertungsseite wird geladen...",
+    "stripePaymentPendingDescription": "Diese Stripe-Bestellung ist noch nicht platziert. Schließe die Zahlung ab; nach der Stripe-Bestätigung wird der Bestellstatus automatisch aktualisiert.",
+    "paymentPendingOverviewDescription": "Zahlung ausstehend — die Bestellung wird erst nach erfolgreicher Stripe-Bestätigung platziert."
   },
   "ordersHistory": {
     "title": "Ihre Bestellhistorie",
@@ -1491,12 +1510,15 @@
     "successNotice": {
       "title": "Bestellung erfolgreich aufgegeben",
       "description": "Wir haben Ihre Bestellung erhalten. Den aktuellen Status können Sie unten verfolgen.",
-      "paymentPendingTitle": "Bestellung aufgegeben, Zahlung ausstehend",
-      "paymentPendingDescription": "Ihre Bestellung wurde erstellt. Schließen Sie die Stripe-Zahlung im Zahlungsbereich ab, um den Checkout zu beenden."
+      "paymentPendingTitle": "Zahlung ausstehend",
+      "paymentPendingDescription": "Diese Stripe-Bestellung ist noch nicht platziert. Schließe die Online-Zahlung ab; danach aktualisieren wir den Status automatisch."
     },
     "completePayment": "Zahlung abschließen",
     "completePaymentDescription": "Dies startet den ausstehenden Stripe-Zahlungsversuch für dieselbe Bestellung erneut.",
-    "closePaymentPopup": "Zahlungspopup schließen"
+    "closePaymentPopup": "Zahlungspopup schließen",
+    "paymentPendingHeading": "Zahlung abschließen",
+    "paymentPendingStatus": "Zahlung ausstehend",
+    "paymentPendingTrackingDescription": "Tracking startet, sobald Stripe die Zahlung bestätigt und die Bestellung als platziert markiert wurde."
   },
   "notifications": {
     "title": "Benachrichtigungen",
@@ -1535,7 +1557,15 @@
       "checkoutText": "Eine gemeinsame Bestellung",
       "heroImageAlt": "Freunde teilen eine Mahlzeit",
       "experienceTitle": "Gruppenbestell-Erlebnis",
-      "experienceDescription": "Perfekt für Büromittagessen, Familienessen und Freunde."
+      "experienceDescription": "Perfekt für Büromittagessen, Familienessen und Freunde.",
+      "joinWithCodeTitle": "Mit Einladungscode beitreten",
+      "joinWithCodeDescription": "Haben Sie bereits einen Gruppenbestellcode? Geben Sie ihn hier ein, um beizutreten und Artikel hinzuzufügen.",
+      "joinCodePlaceholder": "CODE EINGEBEN",
+      "joinCodeRequired": "Bitte geben Sie einen Einladungscode ein",
+      "joinGroupOrder": "Gruppenbestellung beitreten",
+      "joining": "Beitreten...",
+      "joined": "Gruppenbestellung beigetreten",
+      "failedJoin": "Gruppenbestellung konnte nicht beigetreten werden"
     },
     "howItWorks": {
       "eyebrow": "Der Ablauf",
@@ -1580,6 +1610,10 @@
       "scheduleSubtitle": "Aktuelles Datum und aktuelle Uhrzeit sind standardmäßig ausgewählt. Sie können sie vor dem Einladen Ihrer Gruppe bearbeiten.",
       "editSchedule": "Bearbeiten",
       "resetToNow": "Aktuelle Zeit verwenden",
+      "instantPickupUnavailable": "Abholung sofort ist derzeit nicht verfügbar. Bitte wählen Sie eine spätere Zeit.",
+      "instantDeliveryUnavailable": "Lieferung sofort ist derzeit nicht verfügbar. Bitte wählen Sie eine spätere Zeit.",
+      "scheduledPickupUnavailable": "Abholung ist zur gewählten Zeit nicht verfügbar.",
+      "scheduledDeliveryUnavailable": "Lieferung ist zur gewählten Zeit nicht verfügbar.",
       "hostNote": "Gastgeber-Hinweis (optional)",
       "hostNotePlaceholder": "Anweisungen für Ihre Gruppe...",
       "creating": "Wird erstellt...",
@@ -1619,13 +1653,33 @@
       "notFoundTitle": "Gruppenbestellung nicht gefunden",
       "notFoundDescription": "Diese Gruppenbestellung ist möglicherweise abgelaufen, wurde abgeschlossen oder der Einladungscode ist nicht mehr gültig.",
       "goToGroupOrder": "Zur Gruppenbestellung",
+      "joinWithCodeTitle": "Mit Einladungscode beitreten",
+      "joinCodePlaceholder": "CODE EINGEBEN",
+      "joinCodeRequired": "Bitte geben Sie einen Einladungscode ein",
+      "joinGroupOrder": "Beitreten",
+      "joining": "Beitreten...",
+      "joined": "Gruppenbestellung beigetreten",
+      "failedJoin": "Gruppenbestellung konnte nicht beigetreten werden",
       "refresh": "Aktualisieren",
       "refreshing": "Wird aktualisiert...",
       "header": {
         "fallbackTitle": "Lobby",
         "description": "Alle Auswahlen für das heutige gemeinsame Essen.",
         "groupStatus": "Gruppenstatus",
-        "readyCount": "{ready}/{total} bereit"
+        "readyCount": "{ready}/{total} bereit",
+        "orderTiming": "Bestellzeit",
+        "instantOrder": "Sofort / ASAP",
+        "scheduledFor": "Geplant für {date}",
+        "expiresAt": "Läuft ab {date}",
+        "orderType": "Bestellart",
+        "orderTypes": {
+          "delivery": "Lieferung",
+          "takeaway": "Abholung",
+          "dineIn": "Vor Ort",
+          "fallback": "Gruppenbestellung"
+        },
+        "branch": "Filiale",
+        "branchFallback": "Ausgewählte Filiale"
       },
       "invite": {
         "linkCopied": "Link kopiert",
@@ -1633,7 +1687,9 @@
         "description": "Senden Sie diesen Link an alle, die beim Essen dabei sein sollen.",
         "generating": "Wird erstellt...",
         "copied": "Kopiert",
-        "copy": "Kopieren"
+        "copy": "Kopieren",
+        "copyCode": "Code kopieren",
+        "codeCopied": "Code kopiert"
       },
       "userCard": {
         "hostSuffix": "(Gastgeber)",
@@ -1657,12 +1713,13 @@
         "platformFee": "Servicegebühr",
         "onlyHostCanFinalize": "Nur der Gastgeber kann die Bestellung finalisieren",
         "finalizeCheckout": "Finalisieren und auschecken",
+        "instantCheckoutUnavailable": "Diese Filiale ist derzeit nicht für eine sofortige Bestellung verfügbar. Bitte planen Sie die Gruppenbestellung für eine verfügbare Zeit.",
         "addRestaurantNote": "Hinweis für das Restaurant hinzufügen",
         "hostFinalizeNotice": "Bestellungen werden erst verarbeitet, wenn der Gastgeber finalisiert.",
         "editNotice": "Bestellungen werden erst verarbeitet, wenn der Gastgeber finalisiert. Sie können Ihre eigenen Artikel weiterhin bearbeiten.",
-        "offerImageAlt": "Gruppenbestell-Angebot",
-        "offer": "ANGEBOT",
-        "offerText": "Erhalten Sie 20 % Rabatt auf Ihre nächste Gruppenbestellung!",
+        "helpfulText": "Lassen Sie diese Lobby geöffnet, um die Auswahl aller zu verfolgen. Wenn alle bereit sind, kann der Gastgeber die Gruppenbestellung abschließen.",
+        "refresh": "Bestellübersicht aktualisieren",
+        "refreshing": "Bestellübersicht wird aktualisiert...",
         "noteTitle": "Hinweis hinzufügen",
         "noteDescription": "Fügen Sie besondere Anweisungen für Ihre Bestellung hinzu.",
         "notePlaceholder": "Allergien, Anweisungen usw.",
@@ -1672,9 +1729,22 @@
         "paymentMethod": "Zahlungsmethode",
         "paymentMethods": {
           "COD": "Barzahlung bei Lieferung",
+          "CARD_ON_DELIVERY": "Kartenzahlung bei Lieferung",
           "PAYPAL": "PayPal",
-          "STRIPE": "Online-Kartenzahlung"
+          "STRIPE": "Online-Kartenzahlung",
+          "WALLET": "Wallet"
         },
+        "tipLabel": "Trinkgeld hinzufügen",
+        "tipHelper": "Optionales Trinkgeld für das Restaurant-Team.",
+        "tipRemove": "Entfernen",
+        "loyaltyTitle": "Punkte einlösen",
+        "loyaltyLoading": "Punkte werden geladen...",
+        "loyaltyAvailable": "{points} Punkte verfügbar. Mindesteinlösung: {minimum} Punkte.",
+        "loyaltyUnavailable": "Treuepunkte sind derzeit nicht verfügbar.",
+        "loyaltyPlaceholder": "Punkte",
+        "loyaltyClear": "Leeren",
+        "loyaltyEstimatedDiscount": "Geschätzter Rabatt: {amount}",
+        "loyaltyRequirements": "Geben Sie verfügbare Punkte über dem Minimum ein, um sie einzulösen.",
         "couponCode": "Gutscheincode",
         "couponPlaceholder": "Gutschein eingeben",
         "confirmOrder": "Bestellung bestätigen",
@@ -1701,8 +1771,30 @@
       "notifiedMembers": "Benachrichtigte Mitglieder",
       "trackingShared": "BESTELLVERFOLGUNG GETEILT",
       "activeParticipant": "Aktiver Teilnehmer",
+      "orderId": "Endgültige Bestell-ID",
+      "orderTiming": "Bestellzeitpunkt",
+      "payment": "Zahlung",
+      "orderType": "Bestellart",
+      "itemsTitle": "Bestellte Artikel",
+      "itemFallback": "Menüartikel",
+      "quantity": "Anz. {count}",
+      "addonFallback": "Zusatz",
+      "noItems": "Keine Artikeldetails zurückgegeben.",
+      "totalsTitle": "Aufschlüsselung der Summe",
+      "subtotal": "Zwischensumme",
+      "tax": "Steuer",
+      "deliveryFee": "Liefergebühr",
+      "discount": "Rabatt",
+      "totalBeforeDiscount": "Summe vor Rabatt",
+      "payable": "Zu zahlen",
       "trackOrder": "Bestellung verfolgen",
-      "backHome": "Zur Startseite"
+      "backHome": "Zur Startseite",
+      "instantOrder": "Sofortbestellung",
+      "variation": "Variante: {variation}",
+      "noParticipants": "Keine Teilnehmerdetails zurückgegeben.",
+      "couponTitle": "Gutschein / Rabatt",
+      "discountApplied": "Rabatt angewendet",
+      "total": "Gesamt"
     }
   },
   "branchSelector": {
@@ -1867,5 +1959,35 @@
   },
   "errors": {
     "somethingWentWrong": "Etwas ist schiefgelaufen"
+  },
+  "cuisines": {
+    "eyebrow": "Küchen",
+    "title": "Küchen entdecken",
+    "description": "Stöbere nach Küche in einem eigenen Bereich – getrennt von regulären Kategorien und Artikeln.",
+    "browseTitle": "Alle Küchen",
+    "browseDescription": "Suche nach einer Küche und öffne eine eigene Küchenseite.",
+    "searchPlaceholder": "Küchen suchen",
+    "empty": "Keine Küchen gefunden",
+    "fallbackDescription": "Entdecke Gerichte aus dieser Küche.",
+    "detailDescription": "Entdecke Gerichte aus dieser Küche.",
+    "backToCuisines": "Zurück zu Küchen",
+    "itemsEyebrow": "Küchenartikel",
+    "itemsTitle": "Gerichte dieser Küche",
+    "emptyItems": "Keine Artikel für diese Küche gefunden.",
+    "itemCount": "{count} Artikel",
+    "exploreItems": "Artikel ansehen",
+    "viewCuisine": "Küche ansehen",
+    "menuItem": "Menüartikel",
+    "itemFallbackDescription": "Frisch zubereitet und bereit zum Bestellen.",
+    "badges": {
+      "cuisine": "Küche",
+      "promotion": "Angebot"
+    },
+    "home": {
+      "eyebrow": "Küchen entdecken",
+      "title": "Nach Küche bestellen",
+      "description": "Ein eigener Küchenbereich – getrennt von regulären Kategorien und Menüartikeln.",
+      "viewAll": "Alle Küchen ansehen"
+    }
   }
 }
